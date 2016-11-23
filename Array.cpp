@@ -13,22 +13,32 @@ using namespace std;
 using namespace v8;
 
 void CreateObject(const FunctionCallbackInfo<Value>& info) ;
-/*
- This is the main class to represent an array/matrix
+/**
+ This is the main class to represent a matrix. It is a nodejs compatible
+ object.
+
+ Arrays are stored in column order, this is to simplify access to (some)
+ libraries (esp. cuda).
+  
+ See the README.md for details on how to use this.
 
 */
 class WrappedArray : public node::ObjectWrap
 {
   public:
+    /**
+       Initialize the prototype of class Array. Called when the module is loaded.
+       ALl the methods and attributes are defined here.
+    */
     static void Init(v8::Local<v8::Object> exports, Local<Object> module) {
       Isolate* isolate = exports->GetIsolate();
 
-      // Prepare constructor template
+      // Prepare constructor template and name of the class
       Local<FunctionTemplate> tpl = FunctionTemplate::New(isolate, New);
       tpl->SetClassName(String::NewFromUtf8(isolate, "Array"));
       tpl->InstanceTemplate()->SetInternalFieldCount(4);
 
-      // Prototype
+      // Prototype - methods. These can be called from javascript
       NODE_SET_PROTOTYPE_METHOD(tpl, "toString", ToString);
       NODE_SET_PROTOTYPE_METHOD(tpl, "inspect", Inspect);
       NODE_SET_PROTOTYPE_METHOD(tpl, "dup", Dup);
@@ -56,7 +66,7 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "reshape", Reshape);
 
 
-      // Factories
+      // Factories - call these on the module - to create a new array
       NODE_SET_METHOD(exports, "eye", Eye);
       NODE_SET_METHOD(exports, "ones", Ones);
       NODE_SET_METHOD(exports, "zeros", Zeros);
@@ -64,6 +74,7 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_METHOD(exports, "diag", Diag);
       NODE_SET_METHOD(exports, "read", Read);
 
+      // define how we access the attributes
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "m"), GetCoeff, SetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "n"), GetCoeff, SetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "length"), GetCoeff);
@@ -71,18 +82,34 @@ class WrappedArray : public node::ObjectWrap
       constructor.Reset(isolate, tpl->GetFunction());
       exports->Set(String::NewFromUtf8(isolate, "Array"), tpl->GetFunction());
     }
+    /**
+	The nodejs constructor. 
+	@see New
+    */
     static Local<Object> NewInstance(const FunctionCallbackInfo<Value>& args);
   private:
+   /**
+	The C++ constructor, creates an mxn array.
+   */
     explicit WrappedArray(int m=0, int n=0) : m_(m), n_(n) {
       dataSize_ = m*n ;
       data_ = new float[dataSize_] ;
       isVector = m==1 || n== 1 ;
     }
+    /**
+	The destructor needs to free the data buffer
+    */
     ~WrappedArray() { 
-        printf( "***** Crap - deleting self *****\n" ) ;
 	delete data_ ;
     }
 
+    /**
+	The nodejs constructor 
+	It takes up to 3 args: 
+		** the number of rows (m) defaults to 0
+		** the number of columns (n) defaults to m
+		** an array of data to use for the array (column major order)
+    */
     static void New(const v8::FunctionCallbackInfo<v8::Value>& args) {
       Isolate* isolate = args.GetIsolate();
 
@@ -90,23 +117,23 @@ class WrappedArray : public node::ObjectWrap
 
       if (args.IsConstructCall()) {
 
-        WrappedArray* self = NULL ;
+        WrappedArray* self = NULL ;	// will fill this up later
 
         int m = args[0]->IsUndefined() ? 0 : args[0]->NumberValue();
-        int n = args[1]->IsUndefined() ? 0 : args[1]->NumberValue();
+        int n = args[1]->IsUndefined() ? m : args[1]->NumberValue();
 
+	// Do we have an array to use for data?
         if( !args[2]->IsUndefined() && args[2]->IsArray() ) {
 
           Local<Array> buffer = Local<Array>::Cast(args[2]->ToObject() );
 
           Local<Context> context = isolate->GetCurrentContext() ;
-          self = Create(m, n, context, buffer );
-        }
-        else {
+          self = Create(m, n, context, buffer )	;
+        } else {  // No array? just create it
           self = Create(m, n) ;
         }
 
-        if( self != NULL ) {
+        if( self != NULL ) {  // double check we managed to create something
           self->Wrap(args.This());
           args.GetReturnValue().Set(args.This());
         }
@@ -116,24 +143,37 @@ class WrappedArray : public node::ObjectWrap
       }
     }
 
-    static WrappedArray *Create( int m, int n, Local<Context> context, Local<Array> array ) {
+/**
+	Create an array with some data provided in a javascript Array
+*/
+    static WrappedArray *Create( 
+	int m, /**< [in] number of rows in the matrix */
+	int n, /**< [in] number of cols in the matrix */
+	Local<Context> context, Local<Array> array /**< [in] data to put into the array - column major order */ 
+	) {
 
       WrappedArray* self = new WrappedArray(m, n) ;
-      if( m == 1 || n == 1 ) {
-        self->isVector = true ;
-      }
 
-      if( !array.IsEmpty() ) {
+	// Copy the minimum of ( input array size & internal buffer size ) numbers
+        // into the internal buffer
         int l = array->Length() ;
         l = std::min( self->m_*self->n_, l ) ;
         for( int i=0 ; i<l ; i++ ) {
           self->data_[i] = array->Get( context, i ).ToLocalChecked()->NumberValue() ;
         }
-      }
       return self ;
     }
 
-    static WrappedArray *Create( int m, int n, float *data = NULL ) {
+/**
+	Create an array with some (optional) data. This will be the base call
+	for creation for internal methods.
+	
+*/
+    static WrappedArray *Create( 
+	int m, /**< [in] number of rows in the matrix */
+	int n, /**< [in] number of cols in the matrix */
+	float *data = NULL /**< [in] data to put into the array - column major order */ 
+	) {
       WrappedArray* self = new WrappedArray(m, n);
 
       if( data != NULL ) {
@@ -145,6 +185,7 @@ class WrappedArray : public node::ObjectWrap
       return self ;
     }
 
+/** ToString returns a string representation of the matrix */
     static void ToString(const FunctionCallbackInfo<Value>& args);
     static void Inspect(const FunctionCallbackInfo<Value>& args);
     static void Ones(const FunctionCallbackInfo<Value>& args);

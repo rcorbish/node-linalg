@@ -1,8 +1,8 @@
 {
-  "name": "lin-alg",
+  "name": "lalg",
   "description": "Linear algebra library - backed by C++.",
-  "version": "0.0.0",
-  "main": "lib/algos.js",
+  "version": "0.0.1",
+  "main": "",
   "keywords": [
     "linear algebra",
     "svd",

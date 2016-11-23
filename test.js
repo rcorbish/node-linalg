@@ -42,7 +42,9 @@ P
 });
 }
 
-var X = new Float32Array( [1,2,3]  ) ;
+var A = new linalg.Array( 3, 3, [] ) ;
+console.log( "new Array empty", (A.m==A.n && A.n==3)?"PASS":" *** FAIL ***" ) ; 
+
 var A = new linalg.Array( 3, 3, [1,2,3,4,5,6,7,8,9] ) ;
 
 
