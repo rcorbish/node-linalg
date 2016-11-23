@@ -1,0 +1,39 @@
+{
+  "name": "lin-alg",
+  "description": "Linear algebra library - backed by C++.",
+  "version": "0.0.0",
+  "main": "lib/algos.js",
+  "keywords": [
+    "linear algebra",
+    "svd",
+    "pca",
+    "openblas"
+  ],
+  "author": "Richard Corbishley <rcorbish@hotmail.com> (rcorbish.ydns.eu)",
+  "contributors": [
+  ],
+  "dependencies": {
+  },
+  "devDependencies": {
+  },
+  "optionalDependencies": {},
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/rcorbish/linalg.git"
+  },
+  "engines": {
+    "node": ">= 7.0.0"
+  },
+  "scripts": {
+    "test": "node test.js"
+  },
+  "bugs": {
+    "url": "https://github.com/rcorbish/linalg/issues"
+  },
+  "homepage": "https://github.com/rcorbish/linalg#readme",
+  "directories": {
+    "test": "test"
+  },
+  "license": "Unlicense"
+}
+
