@@ -48,7 +48,7 @@ console.log( "new Array empty", (A.m==A.n && A.n==3)?"PASS":" *** FAIL ***" ) ;
 var A = new linalg.Array( 3, 3, [1,2,3,4,5,6,7,8,9] ) ;
 
 
-A.mmulp(A, function(err,x) { 
+A.mulp(A, function(err,x) { 
         if( err ) {
 		console.log( "MULP Callback  ", " *** FAIL ***" ) ; 
 	} else {
@@ -60,7 +60,7 @@ A.mmulp(A, function(err,x) {
 	}
 }) ;
 
-var P = A.mmulp(A) ; 
+var P = A.mulp(A) ; 
 
 if( P ) {
 P
@@ -77,7 +77,7 @@ P
 }
 
 B = linalg.rand(7) ;
-A.mmulp(B, function(err,x) { 
+A.mulp(B, function(err,x) { 
         if( err ) {
 		console.log( "MULP err       ", "PASS" ) ; 
 	} else {
@@ -92,11 +92,11 @@ B = linalg.rand( 30 ) ;
 var tot = Math.abs( A.sub(A).sum().sum() ) ;
 console.log( "A-A            ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
-console.time("mmul");
+console.time("mul");
 for( var i=0 ; i<100 ; i++ ) {
-	A.mmul( B ) ;
+	A.mul( B ) ;
 }
-//console.timeEnd("mmul");
+//console.timeEnd("mul");
 
 A = linalg.rand(50) ;
 
@@ -107,7 +107,7 @@ for( var i=0 ; i<100 ; i++ ) {
 //console.timeEnd("inv");
 
 A = linalg.rand(50) ;
-var tot = Math.abs( 50 - A.mmul( A.inv() ).sum().sum() ) ;
+var tot = Math.abs( 50 - A.mul( A.inv() ).sum().sum() ) ;
 console.log( "A * inv(A)     ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 tot = A.length ;
 console.log( "A.m            ", (50==A.m)?"PASS":" *** FAIL ***" ) ;
@@ -123,7 +123,7 @@ console.log( "A transpose    ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 A = linalg.rand( 10, 7 ) ;
 var svd = A.dup().svd() ;
 var SS = linalg.diag( svd.S, 10 ) ;
-var R = svd.U.mmul(SS).mmul(svd.VT) ;
+var R = svd.U.mul(SS).mul(svd.VT) ;
 
 var tot = Math.abs( R.sub(A).sum().sum() ) ;
 console.log( "A.svd()        ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
@@ -145,11 +145,11 @@ var BIG1 = linalg.rand(3000) ;
 var BIG2 = linalg.rand(3000) ;
 console.log( "rand big       ", (BIG1.m==BIG1.n&&BIG2.m==BIG2.n)?"PASS":" *** FAIL ***" ) ;
 
-console.time("mmulp 3k");
-BIG1.mmulp( BIG2 )
+console.time("mulp 3k");
+BIG1.mulp( BIG2 )
 .then( function( res ) {
   console.log( "mulp big       ", "PASS" ) ;
-  console.timeEnd("mmulp 3k");
+  console.timeEnd("mulp 3k");
 })
 .catch( function( err ) {
   console.log( "mulp big       ", " *** FAIL ***" ) ;

@@ -22,7 +22,6 @@ void CreateObject(const FunctionCallbackInfo<Value>& info) ;
  good enough for most situations. The comments for the C++ code contain
  some javascript examples
   
- See the README.md for details on how to use this.
 
 */
 class WrappedArray : public node::ObjectWrap
@@ -46,13 +45,13 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "dup", Dup);
       NODE_SET_PROTOTYPE_METHOD(tpl, "transpose", Transpose);
       NODE_SET_PROTOTYPE_METHOD(tpl, "mul", Mul);
-      NODE_SET_PROTOTYPE_METHOD(tpl, "mmul", Mmul);
-      NODE_SET_PROTOTYPE_METHOD(tpl, "mmulp", Mmulp);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "mulp", Mulp);
       NODE_SET_PROTOTYPE_METHOD(tpl, "asum", Asum);
       NODE_SET_PROTOTYPE_METHOD(tpl, "sum", Sum);
       NODE_SET_PROTOTYPE_METHOD(tpl, "mean", Mean);
       NODE_SET_PROTOTYPE_METHOD(tpl, "add", Add);
       NODE_SET_PROTOTYPE_METHOD(tpl, "sub", Sub);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "neg", Neg);
       NODE_SET_PROTOTYPE_METHOD(tpl, "inv", Inv);
       NODE_SET_PROTOTYPE_METHOD(tpl, "svd", Svd);
       NODE_SET_PROTOTYPE_METHOD(tpl, "pca", Pca);
@@ -191,10 +190,10 @@ class WrappedArray : public node::ObjectWrap
     static void Read(const FunctionCallbackInfo<Value>& args );
     static void Rand(const FunctionCallbackInfo<Value>& args );
     static void Dup(const FunctionCallbackInfo<Value>& args );
+    static void Neg(const FunctionCallbackInfo<Value>& args );
     static void Transpose(const FunctionCallbackInfo<Value>& args );
     static void Mul(const FunctionCallbackInfo<Value>& args );
-    static void Mmul(const FunctionCallbackInfo<Value>& args );
-    static void Mmulp(const FunctionCallbackInfo<Value>& args );
+    static void Mulp(const FunctionCallbackInfo<Value>& args );
     static void Asum( const FunctionCallbackInfo<v8::Value>& args  );
     static void Sum( const FunctionCallbackInfo<v8::Value>& args  );
     static void Mean( const FunctionCallbackInfo<v8::Value>& args  );
@@ -223,7 +222,7 @@ class WrappedArray : public node::ObjectWrap
     static void DataEndCallback(const FunctionCallbackInfo<Value>& args) ;
 
     static void WorkAsyncComplete(uv_work_t *req,int status) ;
-    static void MmulpWorkAsync(uv_work_t *req) ;
+    static void MulpWorkAsync(uv_work_t *req) ;
     static void ReadWorkAsync(uv_work_t *req) ;
 
 };
@@ -308,6 +307,37 @@ void WrappedArray::Dup( const v8::FunctionCallbackInfo<v8::Value>& args )
   memcpy( result->data_, self->data_, sizeof(float) * self->m_ * self->n_ ) ;
 }
 
+
+/** 
+	Negate a matrix
+
+	Returns a new matrix which is an copy of the target with each element sign reversed
+
+	It takes 0 args:
+*/
+void WrappedArray::Neg( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ; ;
+
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape( instance );
+
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+  int sz = self->m_ * self->n_  ;
+  for( int i=0 ; i<sz ; i++ ) {
+	result->data_[i] = -self->data_[i] ;
+  }
+}
+
 /** 
 	Transpose a matrix
 
@@ -353,84 +383,85 @@ void WrappedArray::Transpose( const v8::FunctionCallbackInfo<v8::Value>& args )
   args.GetReturnValue().Set( instance );
 }
 
-/**
-	Mul - multiply by scalar (inplace)
-
-	Scale the traget by a scalar value. I.e. multiply all elements
-	by the given number.
-
-	@param the number by which to scale each element
-	@return the original matrix 
-*/
-void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
-{
-  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-
-  args.GetReturnValue().Set( args.Holder() ) ;
-
-  float f = args[0]->IsUndefined() ? 1.0 : args[0]->NumberValue() ;
-  int sz = self->m_ * self->n_ ;
-
-  for( int i=0 ; i<sz ; i++ ) {
-    self->data_[i] *= f ;
-  }
-}
 
 
 /**
-	Mmul - multiply by another matrix
+	Mul - multiply a matrix
 
 	Perform matrix multiplication. The target must be MxK and the other must be KxN
 	a new matrix of MxN is produced. This is fine for small matrices, if large matrices
-	are to be multiplied, consider Mmulp
+	are to be multiplied, consider Mulp. If a scalar is passed in all elements in the
+	array are multiplied by it.
 	
-	@see Mmulp for a version which returns a promise
-	@param the other matrix
+	@see Mulp for a version which returns a promise
+	@param the other matrix or a number
 	@return a new matrix 
 */
-void WrappedArray::Mmul( const v8::FunctionCallbackInfo<v8::Value>& args )
+void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
 
+  EscapableHandleScope scope(isolate) ; 
+
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-  WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
 
-  if( self->n_ != other->m_ ) {
-    char *msg = new char[ 1000  ];
-    snprintf( msg, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
-    isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
-    delete msg ;
-    args.GetReturnValue().Set( Undefined(isolate) );
-  }
-  else {
-    EscapableHandleScope scope(isolate) ; ;
-
+// If we got a single number as a paramet - do a scalar multiply
+  if( args[0]->IsNumber() ) { 
     const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,other->n_ ) };
+    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
     Local<Function> cons = Local<Function>::New(isolate, constructor);
     Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
 
     scope.Escape( instance );
-
     WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
     args.GetReturnValue().Set( instance );
 
-    cblas_sgemm(
-      CblasColMajor,
-      CblasNoTrans,
-      CblasNoTrans,
-      self->m_,
-      other->n_,
-      self->n_,
-      1.f,
-      self->data_,
-      self->m_,
-      other->data_,
-      other->m_,
-      0.f,
-      result->data_,
-      result->m_ );
+    float x = args[0]->NumberValue() ;
+    int sz = self->m_ * self->n_ ;
+    float *data = result->data_ ;
+    float *a = self->data_ ;
+    for( int i=0 ; i<sz ; i++ ) {
+	*data++ = *a++ * x ;
+    }		
+  } else { // else we're in real matrix & vectore multiply world
+      WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
+    // check the sizes match
+    if( self->n_ != other->m_ ) {
+      char *msg = new char[ 1000  ];
+      snprintf( msg, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+      delete msg ;
+      args.GetReturnValue().Set( Undefined(isolate) );
+    } else { 
+// if we're here we can do a matrix multiply
+// 1st create the appropriate sized result
+      const unsigned argc = 2;
+      Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,other->n_ ) };
+      Local<Function> cons = Local<Function>::New(isolate, constructor);
+      Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+      scope.Escape( instance );
+
+      WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+      args.GetReturnValue().Set( instance );
+// The pass off to the blas libraries
+      cblas_sgemm(
+        CblasColMajor,
+        CblasNoTrans,
+        CblasNoTrans,
+        self->m_,
+        other->n_,
+        self->n_,
+        1.f,
+        self->data_,
+        self->m_,
+        other->data_,
+        other->m_,
+        0.f,
+        result->data_,
+       result->m_ );
+    }
   }
 }
 
@@ -448,7 +479,7 @@ struct Work {
 
 
 /**
-	Mmulp - multiply by another matrix in non-blocking mode
+	multiply a matrix in non-blocking mode
 
 	Perform matrix multiplication. The target must be MxK and the other must be KxN
 	a new matrix of MxN is produced. This will run in non-blocked
@@ -457,13 +488,13 @@ struct Work {
 	There are two ways to use this, pass in an optional callback or accept a returned promise.
 	Passing in a callback will prevent the Promise from being returned.
 	
-	@see Mmul for a version which is blocking
+	@see Mul for a version which is blocking
 	@param [in] the other matrix
 	@param [in] a callback of prototype function(err,MATRIX){ }
 	@return a promise which will resolve to a new Matrix
 */
 
-void WrappedArray::Mmulp( const v8::FunctionCallbackInfo<v8::Value>& args )
+void WrappedArray::Mulp( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
 
@@ -529,7 +560,7 @@ void WrappedArray::Mmulp( const v8::FunctionCallbackInfo<v8::Value>& args )
     work->resultLocal.Reset(); 
   } else {
 // OK - all acceptable - create the thread and we're done
-    uv_queue_work(uv_default_loop(),&work->request, WrappedArray::MmulpWorkAsync, WrappedArray::WorkAsyncComplete ) ;
+    uv_queue_work(uv_default_loop(),&work->request, WrappedArray::MulpWorkAsync, WrappedArray::WorkAsyncComplete ) ;
   }
 }
 
@@ -537,7 +568,7 @@ void WrappedArray::Mmulp( const v8::FunctionCallbackInfo<v8::Value>& args )
 	Handle the body of the multiply thread. Read the two matrices from
 	the Work structure, do the multiply and return
 */
-void WrappedArray::MmulpWorkAsync(uv_work_t *req) {
+void WrappedArray::MulpWorkAsync(uv_work_t *req) {
   Work *work = static_cast<Work *>(req->data);
 
   WrappedArray* self = work->self ;
@@ -975,7 +1006,7 @@ void WrappedArray::RemoveCol( const v8::FunctionCallbackInfo<v8::Value>& args )
 */
 void WrappedArray::Reshape( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
-  Isolate* isolate = args.GetIsolate();
+//  Isolate* isolate = args.GetIsolate();
 //  Local<Context> context = isolate->GetCurrentContext() ;
 
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
@@ -983,7 +1014,7 @@ void WrappedArray::Reshape( const v8::FunctionCallbackInfo<v8::Value>& args )
   int m = args[0]->IsUndefined() ? (self->m_*self->n_) : args[0]->NumberValue() ;
   int n = args[1]->IsUndefined() ? 1 : args[1]->NumberValue() ;
 
-  EscapableHandleScope scope(isolate) ; ;
+//  EscapableHandleScope scope(isolate) ; ;
 
   args.GetReturnValue().Set( args.Holder() );
 
@@ -1002,96 +1033,73 @@ void WrappedArray::Reshape( const v8::FunctionCallbackInfo<v8::Value>& args )
 /**
 	Add two matrices
 
-	Element wise addition of two matrices. The other array to be added
-	must be the same shape or vector matching shape ( if adding a row vector to 
+	Performs one of
+	- Element wise addition of two matrices. The other array to be added
+	must be the same shape or vector matching shape
+	- Row or column wise addition of a vector to the target  ( if adding a row vector to 
 	a target the number of elements in the vector must match the number of columns
 	in the matrix).
+  	- Simple element wise addition - adds a single number to every element in the target
 
-	@param a matrix or vector.
-	@return
+	@param [in] one of 
+	- a matrix 
+	- a vector 
+	- a number
+	@return a new matrix
 
 */
 void WrappedArray::Add( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
+  EscapableHandleScope scope(isolate) ;
 
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-  WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+  scope.Escape(instance);
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
 
-  if( self->n_ == other->n_  &&  self->m_ == other->m_ ) {
-    EscapableHandleScope scope(isolate) ; ;
+  float *data = result->data_ ;
+  float *a = self->data_ ;
+  int sz = self->m_ * self->n_ ;
 
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
-    scope.Escape(instance);
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-    args.GetReturnValue().Set( instance );
-
-    int sz = self->m_ * self->n_ ;
-    float *data = result->data_ ;
-    float *a = self->data_ ;
+  if( args[0]->IsNumber() ) { 
+	float x = args[0]->NumberValue() ;
+	for( int i=0 ; i<sz ; i++ ) {
+		*data++ = *a++ + x ;
+	}		
+  } else {
+    WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
     float *b = other->data_ ;
-    for( int i=0 ; i<sz ; i++ ) {
-      data[i] = a[i] + b[i] ;
+    if( self->n_ == other->n_  &&  self->m_ == other->m_ ) {
+      for( int i=0 ; i<sz ; i++ ) {
+	*data++ = *a++ + *b++ ;
+      }
+    } else if( self->n_ == other->n_  &&  other->m_ == 1 ) { // add a row vector to each row
+      int j = 0 ;
+      int n = self->m_ ;
+      for( int i=0 ; i<sz ; i++ ) {
+        *data++ = *a++ + b[j] ;
+        if( --n == 0 ) { j++ ; n = self->m_ ; }
+      }
+    } else if( self->m_ == other->m_  &&  other->n_ == 1 ) { // add a col vector to each col
+      int j = 0 ;
+      for( int i=0 ; i<sz ; i++ ) {
+        data[i] = a[i] + b[j++] ;
+        if( j>=self->m_ ) j=0 ;
+      }
+    } else { // incompatible types ...
+      char *msg = new char[ 1000 ] ;
+      snprintf( msg, 1000, "Incompatible args: |%d x %d| + |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+      delete msg ;
+      args.GetReturnValue().Set( Undefined(isolate) );
     }
-  }                              // add a row vector to each row
-  else if( self->n_ == other->n_  &&  other->m_ == 1 ) {
-    EscapableHandleScope scope(isolate) ; ;
-
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
-    scope.Escape(instance);
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-    args.GetReturnValue().Set( instance );
-
-    int sz = self->m_ * self->n_ ;
-    float *data = result->data_ ;
-    float *a = self->data_ ;
-    float *b = other->data_ ;
-    int j = 0 ;
-    int n = self->m_ ;
-    for( int i=0 ; i<sz ; i++ ) {
-      data[i] = a[i] + b[j] ;
-      if( --n == 0 ) { j++ ; n = self->m_ ; }
-    }
-  }                              // add a col vector to each col
-  else if( self->m_ == other->m_  &&  other->n_ == 1 ) {
-    EscapableHandleScope scope(isolate) ; ;
-
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
-    scope.Escape(instance);
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-    args.GetReturnValue().Set( instance );
-
-    int sz = self->m_ * self->n_ ;
-    float *data = result->data_ ;
-    float *a = self->data_ ;
-    float *b = other->data_ ;
-    int j = 0 ;
-    for( int i=0 ; i<sz ; i++ ) {
-      data[i] = a[i] + b[j++] ;
-      if( j>=self->m_ ) j=0 ;
-    }
-  }                              // incompatible types ...
-  else {
-    char *msg = new char[ 1000 ] ;
-    snprintf( msg, 1000, "Incompatible args: |%d x %d| + |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
-    isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
-    delete msg ;
-    args.GetReturnValue().Set( Undefined(isolate) );
   }
-
 }
 
 
@@ -1099,96 +1107,75 @@ void WrappedArray::Add( const v8::FunctionCallbackInfo<v8::Value>& args )
 /**
 	Subtract two matrices
 
-	Element wise addition of two matrices. The other array to be added
-	must be the same shape or vector matching shape ( if adding a row vector to 
+	Performs one of
+	- Element wise subtraction of two matrices. The other array to be subtracted from target
+	must be the same shape or vector matching shape
+	- Row or column wise subtraction of a vector from the target  ( if subtracting a row vector from
 	a target the number of elements in the vector must match the number of columns
 	in the matrix).
+  	- Simple element wise subtraction - subtracts a single number from every element in the target
 
-	@param a matrix or vector.
-	@return the result of the elementwise subtraction
+	@param [in] one of 
+	- a matrix 
+	- a vector 
+	- a number
+	@return a new matrix
 
 */
 void WrappedArray::Sub( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
+  EscapableHandleScope scope(isolate) ;
 
-  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-  WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+  scope.Escape(instance);
+  args.GetReturnValue().Set( instance );
 
-  if( self->n_ == other->n_  &&  self->m_ == other->m_ ) {
-    EscapableHandleScope scope(isolate) ; ;
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
 
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+  float *data = result->data_ ;
+  float *a = self->data_ ;
+  int sz = self->m_ * self->n_ ;
 
-    scope.Escape(instance);
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-    args.GetReturnValue().Set( instance );
-
-    int sz = self->m_ * self->n_ ;
-    float *data = result->data_ ;
-    float *a = self->data_ ;
+  if( args[0]->IsNumber() ) { 
+	float x = args[0]->NumberValue() ;
+	for( int i=0 ; i<sz ; i++ ) {
+		*data++ = *a++ - x ;
+	}		
+  } else {
+    WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
     float *b = other->data_ ;
-    for( int i=0 ; i<sz ; i++ ) {
-      data[i] = a[i] - b[i] ;
+    if( self->n_ == other->n_  &&  self->m_ == other->m_ ) {
+      for( int i=0 ; i<sz ; i++ ) {
+	*data++ = *a++ - *b++ ;
+      }
+    } else if( self->n_ == other->n_  &&  other->m_ == 1 ) { // add a row vector to each row
+      int j = 0 ;
+      int n = self->m_ ;
+      for( int i=0 ; i<sz ; i++ ) {
+        *data++ = *a++ - b[j] ;
+        if( --n == 0 ) { j++ ; n = self->m_ ; }
+      }
+    } else if( self->m_ == other->m_  &&  other->n_ == 1 ) { // add a col vector to each col
+      int j = 0 ;
+      for( int i=0 ; i<sz ; i++ ) {
+        data[i] = a[i] - b[j++] ;
+        if( j>=self->m_ ) j=0 ;
+      }
+    } else { // incompatible types ...
+      char *msg = new char[ 1000 ] ;
+      snprintf( msg, 1000, "Incompatible args: |%d x %d| + |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+      delete msg ;
+      args.GetReturnValue().Set( Undefined(isolate) );
     }
-  }                              // add a row vector to each row
-  else if( self->n_ == other->n_  &&  other->m_ == 1 ) {
-    EscapableHandleScope scope(isolate) ; ;
-
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
-    scope.Escape(instance);
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-    args.GetReturnValue().Set( instance );
-
-    int sz = self->m_ * self->n_ ;
-    float *data = result->data_ ;
-    float *a = self->data_ ;
-    float *b = other->data_ ;
-    int j = 0 ;
-    int n = self->m_ ;
-    for( int i=0 ; i<sz ; i++ ) {
-      data[i] = a[i] - b[j] ;
-      if( --n == 0 ) { j++ ; n = self->m_ ; }
-    }
-  }                              // add a col vector to each col
-  else if( self->m_ == other->m_  &&  other->n_ == 1 ) {
-    EscapableHandleScope scope(isolate) ; ;
-
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
-    scope.Escape(instance);
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-    args.GetReturnValue().Set( instance );
-
-    int sz = self->m_ * self->n_ ;
-    float *data = result->data_ ;
-    float *a = self->data_ ;
-    float *b = other->data_ ;
-    int j = 0 ;
-    for( int i=0 ; i<sz ; i++ ) {
-      data[i] = a[i] - b[j++] ;
-      if( j>=self->m_ ) j=0 ;
-    }
-  }                              // incompatible types ...
-  else {
-    char *msg = new char[ 1000 ] ;
-    snprintf( msg, 1000, "Incompatible args: |%d x %d| + |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
-    isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
-    delete msg ;
-    args.GetReturnValue().Set( Undefined(isolate) );
   }
-
 }
 
 
@@ -1386,7 +1373,7 @@ void WrappedArray::Svd( const v8::FunctionCallbackInfo<v8::Value>& args )
 	var factor = A.sub( mean ).pca( 0.95 )  ; 	// keep 95% of the information
 
 	// normalize any data we will reduce as well (need not be the same as the inputs )
-	var ARD = A.sub(mean).mmul( factor ) ;		// A's features mapped to a reduced set of dimensions
+	var ARD = A.sub(mean).mul( factor ) ;		// A's features mapped to a reduced set of dimensions
 
 	\endcode
 
