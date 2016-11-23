@@ -46,12 +46,20 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "transpose", Transpose);
       NODE_SET_PROTOTYPE_METHOD(tpl, "mul", Mul);
       NODE_SET_PROTOTYPE_METHOD(tpl, "mulp", Mulp);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "hadamard", Hadamard);
       NODE_SET_PROTOTYPE_METHOD(tpl, "asum", Asum);
       NODE_SET_PROTOTYPE_METHOD(tpl, "sum", Sum);
       NODE_SET_PROTOTYPE_METHOD(tpl, "mean", Mean);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "norm", Norm);
       NODE_SET_PROTOTYPE_METHOD(tpl, "add", Add);
       NODE_SET_PROTOTYPE_METHOD(tpl, "sub", Sub);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "find", Find);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "findGreater", FindGreater);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "findLessEqual", FindLessEqual);
       NODE_SET_PROTOTYPE_METHOD(tpl, "neg", Neg);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "log", Log);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "sqrt", Sqrt);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "abs", Abs);
       NODE_SET_PROTOTYPE_METHOD(tpl, "inv", Inv);
       NODE_SET_PROTOTYPE_METHOD(tpl, "svd", Svd);
       NODE_SET_PROTOTYPE_METHOD(tpl, "pca", Pca);
@@ -190,13 +198,21 @@ class WrappedArray : public node::ObjectWrap
     static void Read(const FunctionCallbackInfo<Value>& args );
     static void Rand(const FunctionCallbackInfo<Value>& args );
     static void Dup(const FunctionCallbackInfo<Value>& args );
+    static void Find(const FunctionCallbackInfo<Value>& args );
+    static void FindGreater(const FunctionCallbackInfo<Value>& args );
+    static void FindLessEqual(const FunctionCallbackInfo<Value>& args );
     static void Neg(const FunctionCallbackInfo<Value>& args );
+    static void Log(const FunctionCallbackInfo<Value>& args );
+    static void Sqrt(const FunctionCallbackInfo<Value>& args );
+    static void Abs(const FunctionCallbackInfo<Value>& args );
     static void Transpose(const FunctionCallbackInfo<Value>& args );
+    static void Hadamard(const FunctionCallbackInfo<Value>& args );
     static void Mul(const FunctionCallbackInfo<Value>& args );
     static void Mulp(const FunctionCallbackInfo<Value>& args );
     static void Asum( const FunctionCallbackInfo<v8::Value>& args  );
     static void Sum( const FunctionCallbackInfo<v8::Value>& args  );
     static void Mean( const FunctionCallbackInfo<v8::Value>& args  );
+    static void Norm( const FunctionCallbackInfo<v8::Value>& args  );
     static void Add( const FunctionCallbackInfo<v8::Value>& args  );
     static void Sub( const FunctionCallbackInfo<v8::Value>& args  );
     static void Inv( const FunctionCallbackInfo<v8::Value>& args  );
@@ -335,6 +351,242 @@ void WrappedArray::Neg( const v8::FunctionCallbackInfo<v8::Value>& args )
   int sz = self->m_ * self->n_  ;
   for( int i=0 ; i<sz ; i++ ) {
 	result->data_[i] = -self->data_[i] ;
+  }
+}
+
+
+/** 
+	Square root a matrix
+
+	Returns a new matrix which is an copy of the target with each element 
+	being the square root of the target. Negative target values will result
+	in NaN entries.
+
+	It takes 0 args:
+*/
+void WrappedArray::Sqrt( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ; ;
+
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape( instance );
+
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+  int sz = self->m_ * self->n_  ;
+  for( int i=0 ; i<sz ; i++ ) {
+	result->data_[i] = ::sqrt( self->data_[i] ) ;
+  }
+}
+
+/** 
+	Log a matrix
+
+	Returns a new matrix which is an copy of the target with each element being the 
+	natural log of the target. Since we're not doing complex values (yet:o), negative
+	and zero values will result in NaN
+
+	It takes 0 args:
+*/
+void WrappedArray::Log( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ; ;
+
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape( instance );
+
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+  int sz = self->m_ * self->n_  ;
+  for( int i=0 ; i<sz ; i++ ) {
+	result->data_[i] = ::log( self->data_[i] ) ;
+  }
+}
+
+
+/** 
+	Absolute value of matrix
+
+	Returns a new matrix which is an copy of the target with each element set to positive
+
+	It takes 0 args:
+*/
+void WrappedArray::Abs( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ; ;
+
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape( instance );
+
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+  int sz = self->m_ * self->n_  ;
+  for( int i=0 ; i<sz ; i++ ) {
+	result->data_[i] = ::abs( self->data_[i] ) ;
+  }
+}
+
+
+/** 
+	Find matching values in a matrix
+
+	Returns a new matrix where a matching element is set to the given parameter
+	if the value matches the supplied number. An optional parameter defines the
+	match accuracy ( since we are working with real numbers ). If the 2nd parameter
+	is not given the orginal target element is dropped in.
+
+	@param [in] the number to find ( default 1 )
+	@param [in] the value to pop into the matching elements
+	@param [in] the accuracy to find a match default 0.000001
+*/
+void WrappedArray::Find( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ; ;
+
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape( instance );
+
+  float x = args[0]->IsUndefined() ? 1 : args[0]->NumberValue() ;
+  float epsilon = (args[1]->IsUndefined() || args[1]->IsNull() ) ? 0.000001 : args[1]->NumberValue() ;
+	
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+  int sz = self->m_ * self->n_  ;
+
+  if( args[2]->IsUndefined() ) {
+    for( int i=0 ; i<sz ; i++ ) {
+      result->data_[i] = ::abs( self->data_[i] - x ) < epsilon ? self->data_[i] : 0.0 ;
+    }
+  }  else {
+    float v = args[2]->IsUndefined() ? 0 : args[2]->NumberValue() ;
+    for( int i=0 ; i<sz ; i++ ) {
+      result->data_[i] = ::abs( self->data_[i] - x ) < epsilon ? v : 0.0 ;
+    }
+  }
+}
+
+
+/** 
+	Keep less (or same) values in a matrix
+
+	Returns a new matrix where a matching element is set to the supplied value if an element 
+	is greater than the supplied number, otherwise it's the target value. In other words
+	keep the values that are <= than the input and zero the rest.
+	If the 2nd parameter is not given (null) the orginal target element is dropped in.
+
+	@param [in] the number to find ( default 1 )
+	@param [in] the value to pop into the matching elements
+
+*/
+void WrappedArray::FindLessEqual( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ; ;
+
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape( instance );
+
+  float x = args[0]->IsUndefined() ? 1 : args[0]->NumberValue() ;
+
+
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+  int sz = self->m_ * self->n_  ;
+
+  if( args[1]->IsUndefined() ) {
+    for( int i=0 ; i<sz ; i++ ) {
+      result->data_[i] = self->data_[i] <= x ? self->data_[i] : 0.0 ;
+    }
+  }  else {
+    float v = args[1]->IsUndefined() ? 0 : args[1]->NumberValue() ;
+    for( int i=0 ; i<sz ; i++ ) {
+      result->data_[i] = self->data_[i] <= x ? v : 0.0 ;
+    }
+  }
+}
+
+
+/** 
+	Keep greater values in a matrix
+
+	Returns a new matrix where a matching element is set to supplied value if an element 
+	is less than or equal to the supplied number, otherwise it's the target value. 
+	In other words keep the values that are > than the input and zero the rest. 
+	If the 2nd parameter is not given (null) the orginal target element is dropped in.
+
+	@param [in] the number to find ( default 1 )
+	@param [in] the value to pop into the matching elements
+
+*/
+void WrappedArray::FindGreater( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ; ;
+
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape( instance );
+
+  float x = args[0]->IsUndefined() ? 1 : args[0]->NumberValue() ;
+
+
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+  int sz = self->m_ * self->n_  ;
+  if( args[1]->IsUndefined() ) {
+    for( int i=0 ; i<sz ; i++ ) {
+      result->data_[i] = self->data_[i] > x ? self->data_[i] : 0.0 ;
+    }
+  }  else {
+    float v = args[1]->IsUndefined() ? 0 : args[1]->NumberValue() ;
+    for( int i=0 ; i<sz ; i++ ) {
+      result->data_[i] = self->data_[i] > x ? v : 0.0 ;
+    }
   }
 }
 
@@ -704,7 +956,77 @@ void WrappedArray::Sum( const v8::FunctionCallbackInfo<v8::Value>& args )
 
 
 /**
-	Get the avergae of rows or columns of a matrix into a vector
+	Get the norm of rows or columns of a matrix into a vector
+
+	This calculates the norms of a row or column of a matrix into a row or
+	column vector. If the target is a vector this will just 
+	return the norm as a number.
+
+	@param [in] the dimension to sum - 0 = sum columns, 1 = sum rows. Default is 0
+	@return the vector of the summed columns or rows. In the case that the target is a vector this is a number
+*/
+void WrappedArray::Norm( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+
+// If target is a vector ignore the dimensions
+  if( self->isVector ) {
+    float rc = 0 ;
+    int l = self->m_ * self->n_ ;
+    for( int i=0 ; i<l ; i++ ) {
+      rc += self->data_[i] * self->data_[i] ;
+    }
+    args.GetReturnValue().Set( ::sqrt( rc ) );
+  }
+  else {
+    int dimension = args[0]->IsUndefined() ? 0 : args[0]->NumberValue() ;
+    int m = ( dimension == 0 ) ? 1 : self->m_ ;
+    int n = ( dimension == 0 ) ? self->n_ : 1 ;
+
+    EscapableHandleScope scope(isolate) ; ;
+
+    const unsigned argc = 2;
+    Local<Value> argv[argc] = { Integer::New( isolate,m ), Integer::New( isolate,n ) };
+    Local<Function> cons = Local<Function>::New(isolate, constructor);
+    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+    scope.Escape(instance);
+    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+    args.GetReturnValue().Set( instance );
+
+    if( dimension == 0 ) {       // sum columns to 1xn vector
+      int ix = 0 ;
+      for( int c=0 ; c<self->n_ ; c++ ) {
+        result->data_[c] = 0 ;
+        for( int r=0 ; r<self->n_ ; r++ ) {
+          result->data_[c] += self->data_[ix] * self->data_[ix] ;
+	  ix++ ;
+        }
+	result->data_[c] = ::sqrt( result->data_[c] ) ;
+      }
+    }
+
+    if( dimension == 1 ) {       // sum rows to mx1 vector
+      for( int r=0 ; r<self->m_ ; r++ ) {
+        result->data_[r] = 0 ;
+        int ix = r ;
+        for( int c=0 ; c<self->n_ ; c++ ) {
+          result->data_[r] += self->data_[ix] * self->data_[ix] ;
+          ix+=m ;
+        }
+	result->data_[r] = ::sqrt( result->data_[r] ) ;
+      }
+    }
+  }
+}
+
+
+
+/**
+	Get the mean of rows or columns of a matrix into a vector
 
 	This calculates the mean of rows or columns of a matrix into a row or
 	column vector. If the target is a vector this will return the mean of
@@ -769,6 +1091,11 @@ void WrappedArray::Mean( const v8::FunctionCallbackInfo<v8::Value>& args )
     }
   }
 }
+
+
+
+
+
 
 
 /**
@@ -1177,6 +1504,85 @@ void WrappedArray::Sub( const v8::FunctionCallbackInfo<v8::Value>& args )
     }
   }
 }
+
+
+/**
+	Hadamard (Schur) multiply of two matrices
+
+	This is (VERY) different to normal matrix multipliy.  Also the vector x matrix version just multiplies
+	each column (or row) entry by the corresponding vector element.
+	
+	It is the .* operator in Matlab or Octave
+
+	Performs one of
+	- Element wise multiplication of two matrices. The other array to be added
+	must be the same shape or vector matching shape
+	- Row or column wise multiplication of a vector to the target  ( if adding a row vector to 
+	a target the number of elements in the vector must match the number of columns
+	in the matrix).
+  	- Simple element wise multiplication - multiplication a single number by every element in the target
+
+	@param [in] one of 
+	- a matrix 
+	- a vector 
+	- a number
+	@return a new matrix
+
+*/
+void WrappedArray::Hadamard( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+  EscapableHandleScope scope(isolate) ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+  scope.Escape(instance);
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+
+  float *data = result->data_ ;
+  float *a = self->data_ ;
+  int sz = self->m_ * self->n_ ;
+
+  if( args[0]->IsNumber() ) { 
+	float x = args[0]->NumberValue() ;
+	for( int i=0 ; i<sz ; i++ ) {
+		*data++ = *a++ * x ;
+	}		
+  } else {
+    WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
+    float *b = other->data_ ;
+    if( self->n_ == other->n_  &&  self->m_ == other->m_ ) {
+      for( int i=0 ; i<sz ; i++ ) {
+	*data++ = *a++ * *b++ ;
+      }
+    } else if( self->n_ == other->n_  &&  other->m_ == 1 ) { // add a row vector to each row
+      int j = 0 ;
+      int n = self->m_ ;
+      for( int i=0 ; i<sz ; i++ ) {
+        *data++ = *a++ * b[j] ;
+        if( --n == 0 ) { j++ ; n = self->m_ ; }
+      }
+    } else if( self->m_ == other->m_  &&  other->n_ == 1 ) { // add a col vector to each col
+      int j = 0 ;
+      for( int i=0 ; i<sz ; i++ ) {
+        data[i] = a[i] * b[j++] ;
+        if( j>=self->m_ ) j=0 ;
+      }
+    } else { // incompatible types ...
+      char *msg = new char[ 1000 ] ;
+      snprintf( msg, 1000, "Incompatible args: |%d x %d| + |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+      delete msg ;
+      args.GetReturnValue().Set( Undefined(isolate) );
+    }
+  }
+}
+
 
 
 

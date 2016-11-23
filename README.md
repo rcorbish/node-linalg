@@ -55,18 +55,24 @@ Create the identity matrix ( identity is square, only need 1 arg )
 
 ## scalar functions
 
-Multiply each element in the matrix by a single value
+Add a value to each element in the matrix
+Multiply each element in the matrix by a single value. NB add() also
+takes vectors and matrices as args too (see later).
+
+```
+	var lalg = require('lalg');
+	var A = lalg.zeros( 5 ) ;
+	var T = A.add( 10 ) ;   // now all elements in T are equal to 10
+```
+
+Multiply each element in the matrix by a single value. NB mul() also
+takes vectors and numbers (be careful with vectors, they must be
+compatible shapes)
 ```
 	var lalg = require('lalg');
 	var A = lalg.ones( 5 ) ;
 	var T = A.mul( 10 ) ;   // now all elements in T are equal to 10
 ```
 
-Add a value to each element in the matrix
-```
-	var lalg = require('lalg');
-	var A = lalg.zeros( 5 ) ;
-	var T = A.add( 10 ) ;   // now all elements in T are equal to 10
-```
 
 

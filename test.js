@@ -156,3 +156,12 @@ BIG1.mulp( BIG2 )
 });
 
 
+A = linalg.rand(10) ;
+var NR = A.norm(1) ;
+var NC = A.norm(0) ;
+console.log( "norm           ", (Math.abs(NR.norm()-NC.norm())<0.0001)?"PASS":" *** FAIL ***" ) ;
+
+B = A.findGreater().add(  A.findLessEqual() ) ;
+tot = Math.abs( B.sub(A).sum().sum() ) ;
+console.log( "find           ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
+
