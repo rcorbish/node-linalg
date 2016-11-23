@@ -1,9 +1,5 @@
 {
   "targets": [
-    {
-      "target_name": "addon",
-      "sources": [ "mmul.cc" ]
-    } ,
 {
       "target_name": "linalg",
       "sources": [ "Array.cpp" ], 

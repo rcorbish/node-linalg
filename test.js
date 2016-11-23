@@ -7,13 +7,13 @@ A = linalg.rand(10) ;
 var CO = A.getColumns() ;
 console.log( "getColumns     ", (CO.m==A.m && CO.n==1)?"PASS":" *** FAIL ***" ) ;
 CO = A.getColumns([0,1,2,3,4,5,6,7,8,9]) ;
-tot = Math.abs( CO.subi(A).sum().sum() ) ;
+tot = Math.abs( CO.sub(A).sum().sum() ) ;
 console.log( "getColumns all ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
 var RO = A.getRows() ;
 console.log( "getRows        ", (RO.n==A.n && RO.m==1)?"PASS":" *** FAIL ***" ) ;
 RO = A.getRows([0,1,2,3,4,5,6,7,8,9]) ;
-tot = Math.abs( RO.subi(A).sum().sum() ) ;
+tot = Math.abs( RO.sub(A).sum().sum() ) ;
 console.log( "getRows all    ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
 A.removeRow() ;
@@ -89,7 +89,7 @@ var A = new linalg.Array( 3, 3, [1,2,3,4,5,6,7,8,9] ) ;
 var B = new linalg.Array( 3, 3, [10,11,12,13,14,15,16,17,18] ) ;
 A = linalg.rand( 30 ) ;
 B = linalg.rand( 30 ) ;
-var tot = Math.abs( A.dup().subi(A).sum().sum() ) ;
+var tot = Math.abs( A.sub(A).sum().sum() ) ;
 console.log( "A-A            ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
 console.time("mmul");
@@ -102,7 +102,7 @@ A = linalg.rand(50) ;
 
 console.time("inv");
 for( var i=0 ; i<100 ; i++ ) {
-	A.invi() ;
+	A.inv() ;
 }
 //console.timeEnd("inv");
 
@@ -116,7 +116,7 @@ console.log( "A.length       ", (tot==(A.m * A.n))?"PASS":" *** FAIL ***" ) ;
 
 A = linalg.rand(50) ;
 var S = A.sum() ;
-S.subi( A.transpose().sum(1).transpose() ) ;
+S = S.sub( A.transpose().sum(1).transpose() ) ;
 tot = Math.abs( S.sum() ) ;
 console.log( "A transpose    ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
@@ -125,7 +125,7 @@ var svd = A.dup().svd() ;
 var SS = linalg.diag( svd.S, 10 ) ;
 var R = svd.U.mmul(SS).mmul(svd.VT) ;
 
-var tot = Math.abs( R.subi(A).sum().sum() ) ;
+var tot = Math.abs( R.sub(A).sum().sum() ) ;
 console.log( "A.svd()        ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
 A = new linalg.Array( 3,4, [1,3,5,2,6,10,3,9,15,1,3,5] ) ;
