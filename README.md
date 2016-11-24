@@ -1,5 +1,7 @@
 # lalg - blas/cuda integration with nodejs
 
+[![Join the chat at https://gitter.im/node-linalg/Lobby](https://badges.gitter.im/node-linalg/Lobby.svg)](https://gitter.im/node-linalg/Lobby?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
+
 This module integrates the efficient libraries created by really smart folks
 into the rich javascript environment provided by nodejs. 
 
