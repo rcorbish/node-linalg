@@ -15,10 +15,6 @@ Of note:
 * matrices are stored in column major order (for cuda compatibility) 
 * limited validation of inputs is present in this version (to be be improved) 
 
-# [Gitter](https://gitter.im/node-linalg/Lobby#)
-
-For help, will answer as quick as I can ( bearing in mind I have a job )
-
 # Help
 * need anyone who can build on windows
 * (polite) suggestions for matrix operations
@@ -45,54 +41,13 @@ Promise to make this better, but I am still learning about software.
 * openblas  
 * lapacke 
 
-
-If you would like to try this out (at present no cuda reqd.).
-
-Example Dockerfile  ( again 16.04 is for the cuda compatibility )
-```
-FROM ubuntu:16.04
-
-RUN apt update && \
-	apt -y install curl && \
-	apt -y install xz-utils && \
-       	curl -L -s https://nodejs.org/dist/v7.2.0/node-v7.2.0-linux-x64.tar.xz -o node-v7.2.0-linux-x64.tar.xz  && \
-	tar -xJf node-v7.2.0-linux-x64.tar.xz  && \
-	rm node-v7.2.0-linux-x64.tar.xz  && \
-	chown -R root:root /node-v7.2.0-linux-x64/bin/node && \
-	ln -s /node-v7.2.0-linux-x64/bin/node /usr/bin && \
-	ln -s /node-v7.2.0-linux-x64/bin/npm /usr/bin && \
-       	apt -y install python && \
-       	apt -y install libopenblas-dev && \
-       	apt -y install liblapacke-dev && \
-       	apt -y install make && \
-       	apt -y install g++ && \
-	npm install lalg
-
-#
-# This line starts up a node instance directly
-#
-CMD [ "/usr/bin/node" ]
-
-```
-run the docker as interactive & try it out. Example rcorbish/lalg is shown, whoch opens into a nodejs environment
-
-Try this as a test ... it will be kept up to date
+The [Dockerfile](https://github.com/rcorbish/node-linalg/blob/master/Dockerfile) shows the requirements in detail
 
 ```
 	docker run -i -t rcorbish/lalg 
         >
 	var lalg = require ( "lalg/build/Release/lalg" ) ;
         lalg.rand( 5 ) ;
-```
-It should output something like this (not exactly - it's a random matrix)
-```
-5 x 5 
-  4.00   0.00  -1.00  -2.00   0.00 
-  2.00   4.00   0.00   4.00   3.00 
- -2.00   2.00  -5.00   0.00   3.00 
-  0.00   0.00   2.00   0.00  -2.00 
- -2.00  -3.00   0.00  -5.00  -1.00 
-
 ```
 
 # API 
