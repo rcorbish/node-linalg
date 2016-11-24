@@ -1,7 +1,7 @@
 {
   "targets": [
 {
-      "target_name": "linalg",
+      "target_name": "lalg",
       "sources": [ "Array.cpp" ], 
       "libraries": [
             "-lopenblas", "-lpthread", "-lgfortran", "-llapacke"

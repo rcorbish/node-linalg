@@ -1,28 +1,60 @@
 # node-linalg
 
-This module is to use the power of the efficient blas (and soon cuda)
-linear algebra in the rich javascript environment provided by nodejs.
+This module integrates the efficient libraries created by really smart folks
+into the rich javascript environment provided by nodejs. 
+
+I need to make the install easier - sorry. Check the Docker file for linux
+prerequistes. [[ Any help with windows would be appreciated ]]
 
 Of note:
 
-* underlying data type is float
+* underlying data type is float (can we template this?)
 * matrices are stored in column major order (for cuda compatibility)
-* limited validation of inputs is present in this version (to be be improved)
+* limited validation of inputs is present in this version (to be be improved) 
 
 
 # Installation
 
+I need to figure out how to do this way more automatically
+
 ## Prerequisites
 
-* nodejs of course ( tested on 7.1.0 )
+* nodejs of course ( tested on 7.2.0 )
 * gyp - npm install -g node-gyp
-* C++ compiler apt install -y g++5  ( cuda nvcc is not ready for 6 yet )
-* openblas  apt install -y libopenblas-dev
+* make
+* python ( oh boy! - can't avoid python - even integrating C++ to javascript !!!!! )
+* C++ compiler 
+* openblas  
+* lapacke 
 
+Example Dockerfile  ( again 16.04 is for the cuda compatibility )
+```
+FROM ubuntu:16.04
+
+RUN apt update && \
+        apt -y install curl && \
+        apt -y install xz-utils && \
+        curl -L -s https://nodejs.org/dist/v7.2.0/node-v7.2.0-linux-x64.tar.xz -o node-v7.2.0-linux-x64.tar.xz  && \
+	tar -xJf node-v7.2.0-linux-x64.tar.xz  && \
+	rm node-v7.2.0-linux-x64.tar.xz  && \
+	chown -R root:root /node-v7.2.0-linux-x64/bin/node && \
+	ln -s /node-v7.2.0-linux-x64/bin/node /usr/bin && \
+	ln -s /node-v7.2.0-linux-x64/bin/npm /usr/bin && \
+        apt -y install python && \
+        apt -y install libopenblas-dev && \
+        apt -y install liblapacke-dev && \
+        apt -y install make && \
+        apt -y install g++ && \
+	npm install lalg
+
+```
 
 # API 
 
-[documentation](https://rcorbish.ydns.eu/lalg/)
+This is the C++ docs, which shows all the nodejs functions and a few
+examples. I'll keep this up to date as the unerlying code changes.
+
+[documentation](https://rcorbish.ydns.eu/lalg/classWrappedArray.html)
 
 # Examples
 
