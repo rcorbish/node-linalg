@@ -2,7 +2,7 @@
   "targets": [
 {
       "target_name": "lalg",
-      "sources": [ "Array.cpp" ], 
+      "sources": [ "src/Array.cpp" ], 
       "libraries": [
             "-lopenblas", "-lpthread", "-lgfortran", "-llapacke"
         ],

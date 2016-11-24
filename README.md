@@ -54,6 +54,8 @@ The [Dockerfile](https://github.com/rcorbish/node-linalg/blob/master/Dockerfile)
         lalg.rand( 5 ) ;
 ```
 
+Verify correct installation by: ``` node node_modules/lalg/test/test.js ```
+
 # API 
 
 This is the C++ docs, which shows all the nodejs functions and a few

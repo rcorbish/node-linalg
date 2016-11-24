@@ -1,7 +1,7 @@
 {
   "name": "lalg",
   "description": "Linear algebra library - backed by C++.",
-  "version": "0.0.6",
+  "version": "0.0.8",
   "main": "lalg.js",
   "keywords": [
     "linear algebra",
@@ -34,7 +34,8 @@
   },
   "homepage": "https://github.com/rcorbish/node-linalg#readme",
   "directories": {
-    "test": "test"
+    "test": "test",
+    "data": "data"
   },
   "license": "Unlicense"
 }

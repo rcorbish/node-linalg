@@ -23,7 +23,7 @@ A.removeColumn() ;
 console.log( "removeColumn   ", (A.n==9 && A.m==9)?"PASS":" *** FAIL ***" ) ;
 
 
-const rr = fs.createReadStream('foo.csv');
+const rr = fs.createReadStream('node_modules/lalg/data/foo.csv');
 var csvStream = csv() ;
 rr.pipe(csvStream);
 
