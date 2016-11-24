@@ -1,4 +1,4 @@
-# node-linalg
+# lalg - blas/cuda integration with nodejs
 
 This module integrates the efficient libraries created by really smart folks
 into the rich javascript environment provided by nodejs. 
@@ -15,6 +15,9 @@ Of note:
 * matrices are stored in column major order (for cuda compatibility) 
 * limited validation of inputs is present in this version (to be be improved) 
 
+# [Gitter](https://gitter.im/node-linalg/Lobby#)
+
+For help, will answer as quick as I can ( bearing in mind I have a job )
 
 # Help
 * need anyone who can build on windows
@@ -37,7 +40,7 @@ Promise to make this better, but I am still learning about software.
 * nodejs of course ( tested on 7.2.0 )
 * gyp - npm install -g node-gyp
 * make
-* python ( oh boy! - can't avoid python - even integrating C++ to javascript !!!!! )
+* python ( oh boy! - can't avoid python - even integrating C++ to javascript !!! )
 * C++ compiler 
 * openblas  
 * lapacke 
@@ -73,7 +76,7 @@ CMD [ "/usr/bin/node" ]
 ```
 run the docker as interactive & try it out. Example rcorbish/lalg is shown, whoch opens into a nodejs environment
 
-Try this as a test...
+Try this as a test ... it will be kept up to date
 
 ```
 	docker run -i -t rcorbish/lalg 

@@ -267,7 +267,7 @@ void WrappedArray::ToString( const v8::FunctionCallbackInfo<v8::Value>& args )
 
   int mm = std::min( self->m_, 10 ) ;
   int nn = std::min( self->n_, 10 ) ;
-  char *rc = new char[ 100 + (mm * nn * 50) ] ;
+  char *rc = new char[ 100 + (mm * nn * 50) ] ;   // allocate a big array. This can still overflow :( TODO: fix this crap
   int n = sprintf( rc, "%d x %d %s\n", self->m_, self->n_, self->isVector?"Vector" : "" ) ;
 
   for( int r=0 ; r<mm ; r++ ) {
@@ -282,8 +282,7 @@ void WrappedArray::ToString( const v8::FunctionCallbackInfo<v8::Value>& args )
     n++ ;
   }
   if( self->m_ > mm ) {
-    strcat( rc, "... ... " ) ;
-    n+=3 ;
+    strcat( rc, "  ...    ...   ...\n" ) ;
   }
 
   args.GetReturnValue().Set( String::NewFromUtf8( isolate, rc) );
