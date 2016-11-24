@@ -3,6 +3,21 @@ var linalg = require('lalg');
 var fs = require('fs');
 var csv = require("fast-csv");
 
+A = linalg.rand(3) ;
+var PI = A.pinv() ;
+console.log( "pinv (square)  ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
+
+A = linalg.rand(10,3) ;
+var PI = A.pinv() ;
+console.log( "pinv (tall)    ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
+
+A = linalg.rand(3,10) ;
+var PI = A.pinv() ;
+console.log( "pinv (short)   ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
+var R = A.mul( PI ) ;
+tot = Math.abs( R.sub( linalg.eye(3) ).sum().sum() ) ;
+console.log( "pinv values    ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
+
 A = linalg.rand(10) ;
 var CO = A.getColumns() ;
 console.log( "getColumns     ", (CO.m==A.m && CO.n==1)?"PASS":" *** FAIL ***" ) ;

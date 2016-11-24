@@ -61,6 +61,7 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "sqrt", Sqrt);
       NODE_SET_PROTOTYPE_METHOD(tpl, "abs", Abs);
       NODE_SET_PROTOTYPE_METHOD(tpl, "inv", Inv);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "pinv", Pinv);
       NODE_SET_PROTOTYPE_METHOD(tpl, "svd", Svd);
       NODE_SET_PROTOTYPE_METHOD(tpl, "pca", Pca);
       NODE_SET_PROTOTYPE_METHOD(tpl, "getRows", GetRows);
@@ -215,7 +216,8 @@ class WrappedArray : public node::ObjectWrap
     static void Norm( const FunctionCallbackInfo<v8::Value>& args  );
     static void Add( const FunctionCallbackInfo<v8::Value>& args  );
     static void Sub( const FunctionCallbackInfo<v8::Value>& args  );
-    static void Inv( const FunctionCallbackInfo<v8::Value>& args  );
+    static void Inv( const FunctionCallbackInfo<v8::Value>& args  );    
+    static void Pinv( const FunctionCallbackInfo<v8::Value>& args  );
     static void Svd( const FunctionCallbackInfo<v8::Value>& args  );
     static void Pca( const FunctionCallbackInfo<v8::Value>& args  );
     static void GetRows( const FunctionCallbackInfo<v8::Value>& args  );
@@ -1659,6 +1661,199 @@ void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
     delete ipiv ;
   }
 }
+
+
+
+/**
+	Get the pseudo inverse of a matrix
+
+	Calculate the pseudo inverse of a matrix. A matrix multiplied by its 
+	pseudo inverse is an identity matrix. A newly created inverse is 
+	returned, the original remains intact.
+
+	@return the new matrix pseudo inverse of the target
+*/
+void WrappedArray::Pinv( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+
+    EscapableHandleScope scope(isolate) ;
+
+    const unsigned argc = 2;
+// inverse matrix is NxM
+    Local<Value> argv[argc] = { Integer::New( isolate,self->n_ ), Integer::New( isolate,self->m_ ) };
+    Local<Function> cons = Local<Function>::New(isolate, constructor);
+    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+    scope.Escape( instance );
+
+    args.GetReturnValue().Set( instance );
+    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+
+/*******************************
+*  T A L L 		       *
+*******************************/
+if( self->m_ > self->n_ ) {	//  ********* if m>n do these steps pinv = inv(A' x A) x A'
+// multiply A'A to get NxN covariance
+
+    int n = self->n_ ;
+    float *cov = new float[ n * n ] ;
+	
+  cblas_sgemm(
+      CblasColMajor,	// always
+      CblasTrans,	// A x A'
+      CblasNoTrans,     
+      n,		// A' rows ( N )
+      n,		// B cols ( N )
+      n,		// A cols		
+      1.f,		// mpy by 1.0 
+      self->data_,	// A data
+      self->m_,		// A rows  
+      self->data_,	// B data
+      self->m_,		// B rows
+      0.f,		// don't do anything with input cov
+      cov,		// output
+      n );		// output rows
+
+// then invert cov
+
+    int *ipiv = new int[ n ] ;  // cov matrix is n x n
+    int rc = LAPACKE_sgetrf(
+      CblasColMajor,
+      n,
+      n,
+      cov,
+      n,
+      ipiv ) ;
+    if( rc != 0 ) {
+      char *msg = new char[ 1000 ] ;
+      snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+      delete msg  ;
+      args.GetReturnValue().Set( Undefined(isolate) );
+    }
+    else {
+      rc = LAPACKE_sgetri(
+        CblasColMajor,
+        n,
+        cov,
+        n,
+        ipiv ) ;
+      if( rc != 0 ) {
+        char *msg = new char[ 1000 ] ;
+        snprintf( msg, 1000, "Internal failure - sgetri() failed with %d", rc ) ;
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+        delete msg ;
+        args.GetReturnValue().Set( Undefined(isolate) );
+      }
+    }
+    delete ipiv ;
+
+// finally multiply the above inverse by A'
+   cblas_sgemm(
+      CblasColMajor,
+      CblasNoTrans,	// COV x A'
+      CblasTrans,
+      n,		// COV rows
+      n,		// A' cols = n
+      n,		// COV cols
+      1.f,		// no scaling of COV
+      cov,		// COV
+      n,		// COV rows
+      self->data_,	// A
+      self->m_,		// A rows
+      0.f,		// leave result alone
+      result->data_,	// result
+      result->m_ );	// rows in result
+
+   delete cov ;
+
+/*******************************
+*  S H O R T		       *
+*******************************/
+  } else {  	// *****************  if n>m do these steps pinv = A' x inv(A x A') 
+
+// multiply AA' to get MxM covariance
+
+  int n = self->n_ ;
+  int m = self->m_ ;
+  float *cov = new float[ m * m ] ;
+	
+  cblas_sgemm(
+      CblasColMajor,	// always
+      CblasNoTrans,	// A x A'
+      CblasTrans,     
+      m,		// A rows ( m )
+      m,		// B cols ( A' cols = m )
+      n,		// A cols ( n ) 
+      1.f,		// mpy by 1.0 
+      self->data_,	// A data
+      m,		// A rows  
+      self->data_,	// B data
+      m,		// B rows
+      0.f,		// don't do anything with input cov
+      cov,		// output
+      m );		// output rows
+
+// then invert cov
+
+    int *ipiv = new int[ n ] ;  // cov matrix is m x m
+    int rc = LAPACKE_sgetrf(
+      CblasColMajor,
+      m,
+      m,
+      cov,
+      m,
+      ipiv ) ;
+    if( rc != 0 ) {
+      char *msg = new char[ 1000 ] ;
+      snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+      delete msg  ;
+      args.GetReturnValue().Set( Undefined(isolate) );
+    }
+    else {
+      rc = LAPACKE_sgetri(
+        CblasColMajor,
+        m,
+        cov,
+        m,
+        ipiv ) ;
+      if( rc != 0 ) {
+        char *msg = new char[ 1000 ] ;
+        snprintf( msg, 1000, "Internal failure - sgetri() failed with %d", rc ) ;
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+        delete msg ;
+        args.GetReturnValue().Set( Undefined(isolate) );
+      }
+    }
+    delete ipiv ;
+
+// finally multiply A' by the above inverse
+   cblas_sgemm(
+      CblasColMajor,
+      CblasTrans,	// A' x COV 
+      CblasNoTrans,
+      n,		// A' rows
+      m,		// A' cols 
+      m,		// COV cols
+      1.f,		// no scaling of COV
+      self->data_,	// A'
+      m,		// A rows
+      cov,		// COV
+      m,		// COV rows
+      0.f,		// leave result alone
+      result->data_,	// result
+      n );		// rows in result
+
+   delete cov ;
+  }
+}
+
+
 
 
 /**
