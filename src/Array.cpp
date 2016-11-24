@@ -1636,7 +1636,9 @@ void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
       result->data_,
       result->m_,
       ipiv ) ;
-    if( rc>0 ) {
+    if( rc != 0 ) {
+      char *msg = new char[ 1000 ] ;
+      if( rc>0 ) {
         snprintf( msg, 1000, "This matrix is singular and cannot be inverted" ) ;
       } else {
         snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;

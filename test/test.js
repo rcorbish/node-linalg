@@ -4,6 +4,10 @@ var fs = require('fs');
 var csv = require("fast-csv");
 
 A = new lalg.Array( 3,3, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
+tot = Math.abs( A.inv().inv().sub( A) .sum().sum() ) ;
+console.log( "inv            ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
+
+A = new lalg.Array( 3,3, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
 var PI = A.pinv() ;
 tot = Math.abs( PI.sub( A.inv() ).sum().sum() ) ;
 console.log( "pinv (square)  ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
