@@ -63,52 +63,6 @@ examples. I'll keep this up to date as the unerlying code changes.
 
 # Examples
 
-## linear regression 
-OK we'll start with a complex example, why not? It showcases the non-blocking 
-features of the library. 
-
-Who wants to wait? A skilled nodejs developer ;)
-
-This implements the linear regression simple cals: ``` theta = inv(X' X) X' y ```
-where X' is a transpose operation ( thanks MATLAB )
-
-To run this you need fast-csv ``` npm install fast-csv```
-
-```
-var linalg = require('lalg/build/Release/lalg');
-var fs = require('fs');
-var csv = require("fast-csv");
-
-const rr = fs.createReadStream('wine.csv');
-var csvStream = csv() ;
-rr.pipe(csvStream);
-
-linalg.read( csvStream ) 
-.then( function(X) { 
-  	var y = X.removeColumn() ;
-	var COV = X.transpose().mulp(X);
-	return Promise.all( [ COV, X, y ] )  ;
-})
-.then( function(X) { 
-	var Z = X[0].inv().mulp( X[1].transpose() ) ;
-	return Promise.all( [ Z, X[1], X[2] ] ) ;
-})
-.then( function(X) { 
-	return Promise.all( [ X[0].mulp( X[2] ), X[1], X[2] ] ) ;
-})
-.then( function(X) { 
-	console.log( "Theta", X[0] ) ;
-        var predicted = X[1].mul( X[0] ) ;
-	console.log( "Predicted", predicted ) ;
-	
-})
-.catch( function(err) {
-	console.log( "Fail", err ) ;
-});
-
-```
-
-
 ## create a matrix
 
 Create an uninitialized array (not too useful really)
@@ -158,4 +112,46 @@ compatible shapes)
 ```
 
 
+## linear regression 
+OK we'll start with a complex example, why not? It showcases the non-blocking 
+features of the library. 
+
+This implements the linear regression simple cals: ``` theta = inv(X' X) X' y ```
+where X' is a transpose operation ( thanks MATLAB )
+
+This needs fast-csv ``` npm install fast-csv```
+
+```
+var linalg = require('lalg');
+var fs = require('fs');
+var csv = require("fast-csv");
+
+const rr = fs.createReadStream('wine.csv');
+var csvStream = csv() ;
+rr.pipe(csvStream);
+
+linalg.read( csvStream ) 
+.then( function(X) { 
+  	var y = X.removeColumn() ;
+	var COV = X.transpose().mulp(X);
+	return Promise.all( [ COV, X, y ] )  ;
+})
+.then( function(X) { 
+	var Z = X[0].inv().mulp( X[1].transpose() ) ;
+	return Promise.all( [ Z, X[1], X[2] ] ) ;
+})
+.then( function(X) { 
+	return Promise.all( [ X[0].mulp( X[2] ), X[1], X[2] ] ) ;
+})
+.then( function(X) { 
+	console.log( "Theta", X[0] ) ;
+        var predicted = X[1].mul( X[0] ) ;
+	console.log( "Predicted", predicted ) ;
+	
+})
+.catch( function(err) {
+	console.log( "Fail", err ) ;
+});
+
+```
 
