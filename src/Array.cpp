@@ -12,6 +12,9 @@
 using namespace std;
 using namespace v8;
 
+
+
+
 void CreateObject(const FunctionCallbackInfo<Value>& info) ;
 /**
  This is the main class to represent a matrix. It is a nodejs compatible
@@ -80,9 +83,10 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_METHOD(exports, "read", Read);
 
       // define how we access the attributes
-      tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "m"), GetCoeff, SetCoeff);
-      tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "n"), GetCoeff, SetCoeff);
+      tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "m"), GetCoeff);
+      tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "n"), GetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "length"), GetCoeff);
+      tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "maxPrint"), GetCoeff, SetCoeff);
 
       constructor.Reset(isolate, tpl->GetFunction());
       exports->Set(String::NewFromUtf8(isolate, "Array"), tpl->GetFunction());
@@ -111,9 +115,9 @@ class WrappedArray : public node::ObjectWrap
     /**
 	The nodejs constructor 
 	It takes up to 3 args: 
-	- the number of rows (m) defaults to 0
-	- the number of columns (n) defaults to m
-	- an array of data to use for the array (column major order)
+	@param [in] number of rows (m) defaults to 0
+	@param [in] number of columns (n) defaults to m
+	@param [in] optional an array of data to use for the array (column major order)
     */
     static void New(const v8::FunctionCallbackInfo<v8::Value>& args) {
       Isolate* isolate = args.GetIsolate();
@@ -235,14 +239,28 @@ class WrappedArray : public node::ObjectWrap
     float *data_ ;   /**< the data buffer holding the values */
     bool isVector ; /**< helper flag to see whether the target is a vector Mx1 or 1xN */
     int dataSize_ ;  /**< private - used to remember the last data allocation size */
-
+    int maxPrint_ ;  /**< the number of rows & columns to print out in toString() */
     static void DataCallback(const FunctionCallbackInfo<Value>& args) ;
     static void DataEndCallback(const FunctionCallbackInfo<Value>& args) ;
+
+    static void PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) ;
+    static void ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, char *error ) ;
 
     static void WorkAsyncComplete(uv_work_t *req,int status) ;
     static void MulpWorkAsync(uv_work_t *req) ;
     static void ReadWorkAsync(uv_work_t *req) ;
 
+};
+
+struct Work {
+  uv_work_t  request;
+  Persistent<Function> callback;
+  Persistent<Promise::Resolver> resolver ;
+  WrappedArray* self ;
+  WrappedArray* other;
+  float otherNumber ;
+  WrappedArray* result ;
+  Persistent<Object> resultLocal;
 };
 
 Persistent<Function> WrappedArray::constructor;
@@ -261,7 +279,11 @@ Local<Object> WrappedArray::NewInstance(const FunctionCallbackInfo<Value>& args)
   return scope.Escape(instance.ToLocalChecked() );
 }
 
-/** returns a string representation of the matrix */
+/** 
+	returns a string representation of the matrix 
+
+	This will print up to maxPrint rows and columns
+*/
 void WrappedArray::ToString( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
@@ -284,7 +306,10 @@ void WrappedArray::ToString( const v8::FunctionCallbackInfo<v8::Value>& args )
     n++ ;
   }
   if( self->m_ > mm ) {
-    strcat( rc, "  ...    ...   ...\n" ) ;
+    for( int i=0 ; i<nn ; i++ ) {
+      strcat( rc, "  ...  " ) ;
+    }
+    strcat( rc, "\n" ) ;
   }
 
   args.GetReturnValue().Set( String::NewFromUtf8( isolate, rc) );
@@ -575,7 +600,6 @@ void WrappedArray::FindGreater( const v8::FunctionCallbackInfo<v8::Value>& args 
 
   float x = args[0]->IsUndefined() ? 1 : args[0]->NumberValue() ;
 
-
   WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
   args.GetReturnValue().Set( instance );
   int sz = self->m_ * self->n_  ;
@@ -659,7 +683,7 @@ void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
 
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
 
-// If we got a single number as a paramet - do a scalar multiply
+// If we got a single number as a parameter - do a scalar multiply
   if( args[0]->IsNumber() ) { 
     const unsigned argc = 2;
     Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
@@ -720,16 +744,6 @@ void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
 
 
 
-struct Work {
-  uv_work_t  request;
-  Persistent<Function> callback;
-  Persistent<Promise::Resolver> resolver ;
-  WrappedArray* self ;
-  WrappedArray* other;
-  WrappedArray* result ;
-  Persistent<Object> resultLocal;
-};
-
 
 /**
 	multiply a matrix in non-blocking mode
@@ -747,75 +761,117 @@ struct Work {
 	@return a promise which will resolve to a new Matrix
 */
 
-void WrappedArray::Mulp( const v8::FunctionCallbackInfo<v8::Value>& args )
-{
+void WrappedArray::Mulp( const v8::FunctionCallbackInfo<v8::Value>& args ) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  EscapableHandleScope scope(isolate) ;
+  
+// Get the 2 matrices to multiply
+  WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+
+  if( args[0]->IsNumber() ) { 
+    const unsigned argc = 2;
+    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+    Local<Function> cons = Local<Function>::New(isolate, constructor);
+    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+    scope.Escape( instance ) ;
+    WrappedArray::PrepareNonBlocking( args, 1, WrappedArray::MulpWorkAsync, instance ) ;
+  } else {   // not a number other item is a matrix
+    WrappedArray *other = ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());
+
+    if( self->n_ != other->m_ ) {
+      char *msg = new char[ 1000 ] ;
+      snprintf( msg, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
+      WrappedArray::ErrorNonBlocking( args, 1, msg ) ;
+      delete msg ;
+    } else {
+      const unsigned argc = 2;
+      Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,other->n_ ) };
+      Local<Function> cons = Local<Function>::New(isolate, constructor);
+      Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+      scope.Escape( instance ) ;
+      WrappedArray::PrepareNonBlocking( args, 1, WrappedArray::MulpWorkAsync, instance ) ;
+    }
+  }
+}
+
+
+
+
+void WrappedArray::PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) {
   Isolate* isolate = args.GetIsolate();
 
   EscapableHandleScope scope(isolate) ;
-
-  Local<Context> context = isolate->GetCurrentContext() ;
-
-// Get the 2 matrices to multiple
   WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-  WrappedArray *other = ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());
-
-// Create a result
-  const unsigned argc = 2;
-  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,other->n_ ) };
-  Local<Function> cons = Local<Function>::New(isolate, constructor);
-  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-  scope.Escape( instance );
 
 // Work is used to pass info into our execution threda
   Work *work = new Work();
-// 1st is to set the work so the thread can see our Work struct
-  work->request.data = work;
+  work->request.data = work;   // 1st is to set the work so the thread can see our Work struct
 
+// Get the 2 matrices to multiply ( or a scalar )
+
+  if( args[0]->IsNumber() ) {
+    work->otherNumber = args[0]->NumberValue() ;
+    work->other = NULL ;
+  } else {    
+    WrappedArray *other = ( callbackIndex < 1 ) ? NULL : ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());
+    work->other = other ;
+  }
   work->self = self ;
-  work->other = other ;
   work->result = ObjectWrap::Unwrap<WrappedArray>( instance )  ;
-
+  
 // It seems to be best that we create the result in the caller's context
 // So we do it here
   work->resultLocal.Reset( isolate, instance ) ;
 
-// If we have a second arg - it will be a callback
-// SO setup the Work struct in Promise or callback mode
-  if( args[1]->IsUndefined() ) {
-    Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
-    work->resolver.Reset(isolate, resolver ) ;
-    args.GetReturnValue().Set( resolver->GetPromise()  ) ;
-  } else {
-    Local<Function> callback = Local<Function>::Cast(args[1]);
-    work->callback.Reset(isolate, callback ) ;
-    args.GetReturnValue().Set( Undefined(isolate) ) ;
+// If we have a second arg - it should be a callback
+// So setup the Work struct in Promise or callback mode
+  if( callbackIndex>=0 ) {
+    if( args[callbackIndex]->IsUndefined() ) {
+      Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
+      work->resolver.Reset(isolate, resolver ) ;
+      args.GetReturnValue().Set( resolver->GetPromise()  ) ;
+    } else if( args[callbackIndex]->IsFunction() ) {
+      Local<Function> callback = Local<Function>::Cast(args[1]);
+      work->callback.Reset(isolate, callback ) ;
+      args.GetReturnValue().Set( Undefined(isolate) ) ;
+    }
   }
-// Check for errors - we won't waste time with creating a thread if
-// the matrices are not compatible. We raise an error instead.
-  if( work->self->n_ != work->other->m_ ) {
-    char *msg = new char[ 1000 ] ;
-    snprintf( msg, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
-    Local<String> err = String::NewFromUtf8(isolate, msg);
-    delete msg ;
-// If we have a promise - raise the error that way
-    if( !work->resolver.IsEmpty() ) {
-      Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
-      resolver->Reject( context, err ) ;
-      work->resolver.Reset();   
-    }
-// If we have a callback raise the error that way
-    if( !work->callback.IsEmpty() ) {
-      Handle<Value> argv[] = { err, Null(isolate) };
-      Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
-      work->callback.Reset();    
-    }
-// Remember to free any pointers we have created up to now
-    work->resultLocal.Reset(); 
-  } else {
 // OK - all acceptable - create the thread and we're done
-    uv_queue_work(uv_default_loop(),&work->request, WrappedArray::MulpWorkAsync, WrappedArray::WorkAsyncComplete ) ;
+  if( work->resolver.IsEmpty() && work->callback.IsEmpty() ) {
+    work_cb( &work->request ) ;
+    Local<Object> rc = Local<Object>::New(isolate,work->resultLocal) ;
+    work->resultLocal.Reset();	// free the persistent storage
+    args.GetReturnValue().Set( rc ) ;
+  } else {
+    uv_queue_work(uv_default_loop(),&work->request, work_cb, WrappedArray::WorkAsyncComplete ) ;
   }
 }
+
+void WrappedArray::ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, char *error  ) {
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  EscapableHandleScope scope(isolate) ;
+  Local<String> err = String::NewFromUtf8(isolate, error);
+
+// If we have a second arg - it will be a callback
+// SO setup the Work struct in Promise or callback mode
+  if( args[callbackIndex]->IsUndefined() ) {
+    Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
+    resolver->Reject( context, err ) ;
+    args.GetReturnValue().Set( resolver->GetPromise()  ) ;
+  } else {
+    Local<Function> callback = Local<Function>::Cast(args[callbackIndex]);
+    Handle<Value> argv[] = { err, Null(isolate) };
+    Local<Function>::New(isolate, callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
+    args.GetReturnValue().Set( Undefined(isolate) ) ;
+  }
+}
+
+
 
 /**
 	Handle the body of the multiply thread. Read the two matrices from
@@ -825,10 +881,20 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
   Work *work = static_cast<Work *>(req->data);
 
   WrappedArray* self = work->self ;
-  WrappedArray* other = work->other ;
   WrappedArray* result = work->result ;
 
-  cblas_sgemm(
+  if( work->other == NULL ) {
+    float x = work->otherNumber ;
+    int sz = self->m_ * self->n_ ;
+    float *data = result->data_ ;
+    float *a = self->data_ ;
+    for( int i=0 ; i<sz ; i++ ) {
+	*data++ = *a++ * x ;
+    }	
+  } else {
+    WrappedArray* other = work->other ;
+
+    cblas_sgemm(
       CblasColMajor,
       CblasNoTrans,
       CblasNoTrans,
@@ -843,6 +909,7 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
       0.f,
       result->data_,
       result->m_ );
+  }
 }
 
 /**
@@ -851,6 +918,9 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
 */
 void WrappedArray::WorkAsyncComplete(uv_work_t *req,int status)
 {
+
+printf( "*** HERE ***\n" ) ;
+
     Isolate * isolate = Isolate::GetCurrent();
     HandleScope scope(isolate) ;
 
@@ -1666,7 +1736,6 @@ void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
 }
 
 
-
 /**
 	Get the pseudo inverse of a matrix
 
@@ -2410,14 +2479,16 @@ void WrappedArray::GetCoeff(Local<String> property, const PropertyCallbackInfo<V
   else if (str == "length") {
     info.GetReturnValue().Set(Number::New(isolate, obj->n_*obj->m_ ));
   }
+  else if (str == "maxPrint") {
+    info.GetReturnValue().Set(Number::New(isolate, obj->maxPrint_ ));
+  }
 }
 
 
 /**
-	This is a nodejs defined method to set attributes. 
-	Don't use it - lok at reshape to change the shape
+	This is a nodejs defined method to set writeable attributes. 
 
-	@see Reshape
+	@see Reshape (to adjust m and n)
 */
 void WrappedArray::SetCoeff(Local<String> property, Local<Value> value, const PropertyCallbackInfo<void>& info)
 {
@@ -2426,11 +2497,8 @@ void WrappedArray::SetCoeff(Local<String> property, Local<Value> value, const Pr
   v8::String::Utf8Value s(property);
   std::string str(*s);
 
-  if ( str == "m") {
-    obj->m_ = value->NumberValue();
-  }
-  else if (str == "n") {
-    obj->n_ = value->NumberValue();
+  if ( str == "maxPrint") {
+    obj->maxPrint_ = value->NumberValue();
   }
 }
 
