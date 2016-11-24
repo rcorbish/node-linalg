@@ -1605,7 +1605,7 @@ void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
 
   if( self->n_ != self->m_ ) {
     char *msg = new char[ 1000 ] ;
-    snprintf( msg, 1000, "Incompatible args - inv() requires a square matrix not |%d x %d|", self->m_, self->n_ ) ;
+    snprintf( msg, 1000, "Incompatible args - inv() requires a square matrix not |%d x %d|. Try pinv() instead.", self->m_, self->n_ ) ;
     isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
     delete msg ;
     args.GetReturnValue().Set( Undefined(isolate) );
@@ -1636,14 +1636,15 @@ void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
       result->data_,
       result->m_,
       ipiv ) ;
-    if( rc != 0 ) {
-      char *msg = new char[ 1000 ] ;
-      snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+    if( rc>0 ) {
+        snprintf( msg, 1000, "This matrix is singular and cannot be inverted" ) ;
+      } else {
+        snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      }
       isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
       delete msg  ;
       args.GetReturnValue().Set( Undefined(isolate) );
-    }
-    else {
+    } else {
       rc = LAPACKE_sgetri(
         CblasColMajor,
         result->n_,
@@ -1693,14 +1694,15 @@ void WrappedArray::Pinv( const v8::FunctionCallbackInfo<v8::Value>& args )
     args.GetReturnValue().Set( instance );
     WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
 
-/*******************************
-*  T A L L 		       *
-*******************************/
-if( self->m_ > self->n_ ) {	//  ********* if m>n do these steps pinv = inv(A' x A) x A'
-// multiply A'A to get NxN covariance
-
     int n = self->n_ ;
-    float *cov = new float[ n * n ] ;
+    int m = self->m_ ;
+
+/*******************************
+*  T A L L  inv(A' x A) x A'   *
+*******************************/
+if( m > n ) {	
+// multiply A'A to get NxN covariance
+  float *cov = new float[ n * n ] ;
 	
   cblas_sgemm(
       CblasColMajor,	// always
@@ -1711,15 +1713,14 @@ if( self->m_ > self->n_ ) {	//  ********* if m>n do these steps pinv = inv(A' x 
       n,		// A cols		
       1.f,		// mpy by 1.0 
       self->data_,	// A data
-      self->m_,		// A rows  
+      m,		// A rows  
       self->data_,	// B data
-      self->m_,		// B rows
+      m,		// B rows
       0.f,		// don't do anything with input cov
       cov,		// output
       n );		// output rows
 
 // then invert cov
-
     int *ipiv = new int[ n ] ;  // cov matrix is n x n
     int rc = LAPACKE_sgetrf(
       CblasColMajor,
@@ -1730,7 +1731,11 @@ if( self->m_ > self->n_ ) {	//  ********* if m>n do these steps pinv = inv(A' x 
       ipiv ) ;
     if( rc != 0 ) {
       char *msg = new char[ 1000 ] ;
-      snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      if( rc>0 ) {
+        snprintf( msg, 1000, "This matrix is singular and cannot be inverted" ) ;
+      } else {
+        snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      }
       isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
       delete msg  ;
       args.GetReturnValue().Set( Undefined(isolate) );
@@ -1764,22 +1769,18 @@ if( self->m_ > self->n_ ) {	//  ********* if m>n do these steps pinv = inv(A' x 
       cov,		// COV
       n,		// COV rows
       self->data_,	// A
-      self->m_,		// A rows
+      m,		// A rows
       0.f,		// leave result alone
       result->data_,	// result
-      result->m_ );	// rows in result
-
+      m );	  	// rows in result
    delete cov ;
 
+  } else {  	
 /*******************************
-*  S H O R T		       *
+*  S H O R T  A' x inv(A x A') *
 *******************************/
-  } else {  	// *****************  if n>m do these steps pinv = A' x inv(A x A') 
 
 // multiply AA' to get MxM covariance
-
-  int n = self->n_ ;
-  int m = self->m_ ;
   float *cov = new float[ m * m ] ;
 	
   cblas_sgemm(
@@ -1810,12 +1811,15 @@ if( self->m_ > self->n_ ) {	//  ********* if m>n do these steps pinv = inv(A' x 
       ipiv ) ;
     if( rc != 0 ) {
       char *msg = new char[ 1000 ] ;
-      snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      if( rc>0 ) {
+        snprintf( msg, 1000, "This matrix is singular and cannot be inverted" ) ;
+      } else {
+        snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      }
       isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
       delete msg  ;
       args.GetReturnValue().Set( Undefined(isolate) );
-    }
-    else {
+    } else {
       rc = LAPACKE_sgetri(
         CblasColMajor,
         m,

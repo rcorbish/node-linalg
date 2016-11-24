@@ -1,24 +1,25 @@
 
-var linalg = require('lalg');
+var lalg = require('lalg');
 var fs = require('fs');
 var csv = require("fast-csv");
 
-A = linalg.rand(3) ;
+A = new lalg.Array( 3,3, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
 var PI = A.pinv() ;
-console.log( "pinv (square)  ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
+tot = Math.abs( PI.sub( A.inv() ).sum().sum() ) ;
+console.log( "pinv (square)  ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
-A = linalg.rand(10,3) ;
+A = A = new lalg.Array( 4,3, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
 var PI = A.pinv() ;
 console.log( "pinv (tall)    ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
 
-A = linalg.rand(3,10) ;
+A = A = new lalg.Array( 3,4, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
 var PI = A.pinv() ;
 console.log( "pinv (short)   ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
 var R = A.mul( PI ) ;
-tot = Math.abs( R.sub( linalg.eye(3) ).sum().sum() ) ;
+tot = Math.abs( R.sub( lalg.eye(3) ).sum().sum() ) ;
 console.log( "pinv values    ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
-A = linalg.rand(10) ;
+A = lalg.rand(10) ;
 var CO = A.getColumns() ;
 console.log( "getColumns     ", (CO.m==A.m && CO.n==1)?"PASS":" *** FAIL ***" ) ;
 CO = A.getColumns([0,1,2,3,4,5,6,7,8,9]) ;
@@ -42,7 +43,7 @@ const rr = fs.createReadStream('node_modules/lalg/data/foo.csv');
 var csvStream = csv() ;
 rr.pipe(csvStream);
 
-var P = linalg.read( csvStream ) ;
+var P = lalg.read( csvStream ) ;
 if( P ) {
 P
 .then( function(val) { 
@@ -57,10 +58,10 @@ P
 });
 }
 
-var A = new linalg.Array( 3, 3, [] ) ;
+var A = new lalg.Array( 3, 3, [] ) ;
 console.log( "new Array empty", (A.m==A.n && A.n==3)?"PASS":" *** FAIL ***" ) ; 
 
-var A = new linalg.Array( 3, 3, [1,2,3,4,5,6,7,8,9] ) ;
+var A = new lalg.Array( 3, 3, [1,2,3,4,5,6,7,8,9] ) ;
 
 
 A.mulp(A, function(err,x) { 
@@ -91,7 +92,7 @@ P
 });
 }
 
-B = linalg.rand(7) ;
+B = lalg.rand(7) ;
 A.mulp(B, function(err,x) { 
         if( err ) {
 		console.log( "MULP err       ", "PASS" ) ; 
@@ -100,10 +101,10 @@ A.mulp(B, function(err,x) {
 	}
 }) ;
 
-var A = new linalg.Array( 3, 3, [1,2,3,4,5,6,7,8,9] ) ;
-var B = new linalg.Array( 3, 3, [10,11,12,13,14,15,16,17,18] ) ;
-A = linalg.rand( 30 ) ;
-B = linalg.rand( 30 ) ;
+var A = new lalg.Array( 3, 3, [1,2,3,4,5,6,7,8,9] ) ;
+var B = new lalg.Array( 3, 3, [10,11,12,13,14,15,16,17,18] ) ;
+A = lalg.rand( 30 ) ;
+B = lalg.rand( 30 ) ;
 var tot = Math.abs( A.sub(A).sum().sum() ) ;
 console.log( "A-A            ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
@@ -113,7 +114,7 @@ for( var i=0 ; i<100 ; i++ ) {
 }
 //console.timeEnd("mul");
 
-A = linalg.rand(50) ;
+A = lalg.rand(50) ;
 
 console.time("inv");
 for( var i=0 ; i<100 ; i++ ) {
@@ -121,7 +122,7 @@ for( var i=0 ; i<100 ; i++ ) {
 }
 //console.timeEnd("inv");
 
-A = linalg.rand(50) ;
+A = lalg.rand(50) ;
 var tot = Math.abs( 50 - A.mul( A.inv() ).sum().sum() ) ;
 console.log( "A * inv(A)     ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 tot = A.length ;
@@ -129,35 +130,35 @@ console.log( "A.m            ", (50==A.m)?"PASS":" *** FAIL ***" ) ;
 console.log( "A.n            ", (50==A.n)?"PASS":" *** FAIL ***" ) ;
 console.log( "A.length       ", (tot==(A.m * A.n))?"PASS":" *** FAIL ***" ) ;
 
-A = linalg.rand(50) ;
+A = lalg.rand(50) ;
 var S = A.sum() ;
 S = S.sub( A.transpose().sum(1).transpose() ) ;
 tot = Math.abs( S.sum() ) ;
 console.log( "A transpose    ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
-A = linalg.rand( 10, 7 ) ;
+A = lalg.rand( 10, 7 ) ;
 var svd = A.dup().svd() ;
-var SS = linalg.diag( svd.S, 10 ) ;
+var SS = lalg.diag( svd.S, 10 ) ;
 var R = svd.U.mul(SS).mul(svd.VT) ;
 
 var tot = Math.abs( R.sub(A).sum().sum() ) ;
 console.log( "A.svd()        ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
-A = new linalg.Array( 3,4, [1,3,5,2,6,10,3,9,15,1,3,5] ) ;
+A = new lalg.Array( 3,4, [1,3,5,2,6,10,3,9,15,1,3,5] ) ;
 P = A.dup().pca(.99) ;
 console.log( "pca(A) - linear", (P.length==4)?"PASS":" *** FAIL ***" ) ;
-A = linalg.rand( 3,4 ) ;
+A = lalg.rand( 3,4 ) ;
 P = A.dup().pca(1.0) ;
 console.log( "pca(A) - rand  ", (P.length==12)?"PASS":" *** FAIL ***" ) ;
 
-A = new linalg.rand( 25 ) ;
+A = new lalg.rand( 25 ) ;
 B = A.add(A) ;
 var tot = Math.abs( B.sub( A.mul(2) ).sum().sum() ) ;
 console.log( "mul            ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
 
-var BIG1 = linalg.rand(3000) ;
-var BIG2 = linalg.rand(3000) ;
+var BIG1 = lalg.rand(3000) ;
+var BIG2 = lalg.rand(3000) ;
 console.log( "rand big       ", (BIG1.m==BIG1.n&&BIG2.m==BIG2.n)?"PASS":" *** FAIL ***" ) ;
 
 console.time("mulp 3k");
@@ -171,7 +172,7 @@ BIG1.mulp( BIG2 )
 });
 
 
-A = linalg.rand(10) ;
+A = lalg.rand(10) ;
 var NR = A.norm(1) ;
 var NC = A.norm(0) ;
 console.log( "norm           ", (Math.abs(NR.norm()-NC.norm())<0.0001)?"PASS":" *** FAIL ***" ) ;
