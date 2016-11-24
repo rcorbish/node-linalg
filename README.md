@@ -47,8 +47,10 @@ The [Dockerfile](https://github.com/rcorbish/node-linalg/blob/master/Dockerfile)
 
 ```
 	docker run -i -t rcorbish/lalg 
-        >
-	var lalg = require ( "lalg/build/Release/lalg" ) ;
+```
+
+```
+	var lalg = require ( "lalg" ) ;
         lalg.rand( 5 ) ;
 ```
 
