@@ -3,6 +3,10 @@ var lalg = require('lalg');
 var fs = require('fs');
 var csv = require("fast-csv");
 
+A = lalg.rand( 30 ) ;
+A.name = "MAT A" ;
+console.log( "name           ", (A.name=='MAT A')?"PASS":" *** FAIL ***" ) ;
+
 A = new lalg.Array( 3,3, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
 tot = Math.abs( A.inv().inv().sub( A) .sum().sum() ) ;
 console.log( "inv            ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
@@ -12,11 +16,11 @@ var PI = A.pinv() ;
 tot = Math.abs( PI.sub( A.inv() ).sum().sum() ) ;
 console.log( "pinv (square)  ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
-A = A = new lalg.Array( 4,3, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
+A = new lalg.Array( 4,3, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
 var PI = A.pinv() ;
 console.log( "pinv (tall)    ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
 
-A = A = new lalg.Array( 3,4, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
+A = new lalg.Array( 3,4, [ 1,6,3,4,45,6,17,8,9.4,10,11,12 ] ) ;
 var PI = A.pinv() ;
 console.log( "pinv (short)   ", (PI.m==A.n && PI.n==A.m)?"PASS":" *** FAIL ***" ) ;
 var R = A.mul( PI ) ;

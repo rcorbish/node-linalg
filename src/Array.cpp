@@ -64,6 +64,7 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "sqrt", Sqrt);
       NODE_SET_PROTOTYPE_METHOD(tpl, "abs", Abs);
       NODE_SET_PROTOTYPE_METHOD(tpl, "inv", Inv);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "invp", Invp);
       NODE_SET_PROTOTYPE_METHOD(tpl, "pinv", Pinv);
       NODE_SET_PROTOTYPE_METHOD(tpl, "svd", Svd);
       NODE_SET_PROTOTYPE_METHOD(tpl, "pca", Pca);
@@ -87,6 +88,7 @@ class WrappedArray : public node::ObjectWrap
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "n"), GetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "length"), GetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "maxPrint"), GetCoeff, SetCoeff);
+      tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "name"), GetCoeff, SetCoeff);
 
       constructor.Reset(isolate, tpl->GetFunction());
       exports->Set(String::NewFromUtf8(isolate, "Array"), tpl->GetFunction());
@@ -104,12 +106,14 @@ class WrappedArray : public node::ObjectWrap
       dataSize_ = m*n ;
       data_ = new float[dataSize_] ;
       isVector = m==1 || n== 1 ;
+      name_ = NULL ;
     }
     /**
 	The destructor needs to free the data buffer
     */
     ~WrappedArray() { 
 	delete data_ ;
+        delete name_ ;
     }
 
     /**
@@ -221,6 +225,7 @@ class WrappedArray : public node::ObjectWrap
     static void Add( const FunctionCallbackInfo<v8::Value>& args  );
     static void Sub( const FunctionCallbackInfo<v8::Value>& args  );
     static void Inv( const FunctionCallbackInfo<v8::Value>& args  );    
+    static void Invp( const FunctionCallbackInfo<v8::Value>& args  );    
     static void Pinv( const FunctionCallbackInfo<v8::Value>& args  );
     static void Svd( const FunctionCallbackInfo<v8::Value>& args  );
     static void Pca( const FunctionCallbackInfo<v8::Value>& args  );
@@ -240,29 +245,32 @@ class WrappedArray : public node::ObjectWrap
     bool isVector ; /**< helper flag to see whether the target is a vector Mx1 or 1xN */
     int dataSize_ ;  /**< private - used to remember the last data allocation size */
     int maxPrint_ ;  /**< the number of rows & columns to print out in toString() */
+    char *name_ ; /**< The name of this matrix - useful for keeping track of things */
     static void DataCallback(const FunctionCallbackInfo<Value>& args) ;
     static void DataEndCallback(const FunctionCallbackInfo<Value>& args) ;
 
-    static void PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) ;
-    static void ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, char *error ) ;
+    static void PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) ;
+    static void ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, char *error ) ;
 
     static void WorkAsyncComplete(uv_work_t *req,int status) ;
+    static void InvpWorkAsync(uv_work_t *req) ;
     static void MulpWorkAsync(uv_work_t *req) ;
     static void ReadWorkAsync(uv_work_t *req) ;
+    static void MulHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) ;
+    static void InvHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) ;
 
-};
-
-struct Work {
-  uv_work_t  request;
-  Persistent<Function> callback;
-  Persistent<Promise::Resolver> resolver ;
-  WrappedArray* self ;
-  WrappedArray* other;
-  float otherNumber ;
-  WrappedArray* result ;
-  Persistent<Object> resultLocal;
-};
-
+    struct Work {
+      uv_work_t  request;
+      Persistent<Function> callback;
+      Persistent<Promise::Resolver> resolver ;
+      WrappedArray* self ;
+      WrappedArray* other;
+      float otherNumber ;
+      WrappedArray* result ;
+      char *err ;
+      Persistent<Object> resultLocal;
+    } ;
+} ;
 Persistent<Function> WrappedArray::constructor;
 
 Local<Object> WrappedArray::NewInstance(const FunctionCallbackInfo<Value>& args)
@@ -287,12 +295,18 @@ Local<Object> WrappedArray::NewInstance(const FunctionCallbackInfo<Value>& args)
 void WrappedArray::ToString( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
+//  Local<Context> context = isolate->GetCurrentContext() ;
+
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
 
   int mm = std::min( self->m_, 10 ) ;
   int nn = std::min( self->n_, 10 ) ;
   char *rc = new char[ 100 + (mm * nn * 50) ] ;   // allocate a big array. This can still overflow :( TODO: fix this crap
-  int n = sprintf( rc, "%d x %d %s\n", self->m_, self->n_, self->isVector?"Vector" : "" ) ;
+  int n = 0 ;
+  if( self->name_ != NULL ) {
+  	n = sprintf( rc, "[ %s ] ", self->name_ ) ;
+  }
+  n += sprintf( rc+n, "%d x %d %s\n", self->m_, self->n_, self->isVector?"Vector" : "" ) ;
 
   for( int r=0 ; r<mm ; r++ ) {
     for( int c=0 ; c<nn ; c++ ) {
@@ -676,70 +690,7 @@ void WrappedArray::Transpose( const v8::FunctionCallbackInfo<v8::Value>& args )
 */
 void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
-  Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext() ;
-
-  EscapableHandleScope scope(isolate) ; 
-
-  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-
-// If we got a single number as a parameter - do a scalar multiply
-  if( args[0]->IsNumber() ) { 
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
-    scope.Escape( instance );
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-    args.GetReturnValue().Set( instance );
-
-    float x = args[0]->NumberValue() ;
-    int sz = self->m_ * self->n_ ;
-    float *data = result->data_ ;
-    float *a = self->data_ ;
-    for( int i=0 ; i<sz ; i++ ) {
-	*data++ = *a++ * x ;
-    }		
-  } else { // else we're in real matrix & vectore multiply world
-      WrappedArray* other = ObjectWrap::Unwrap<WrappedArray>( args[0]->ToObject() );
-    // check the sizes match
-    if( self->n_ != other->m_ ) {
-      char *msg = new char[ 1000  ];
-      snprintf( msg, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
-      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
-      delete msg ;
-      args.GetReturnValue().Set( Undefined(isolate) );
-    } else { 
-// if we're here we can do a matrix multiply
-// 1st create the appropriate sized result
-      const unsigned argc = 2;
-      Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,other->n_ ) };
-      Local<Function> cons = Local<Function>::New(isolate, constructor);
-      Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
-      scope.Escape( instance );
-
-      WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
-      args.GetReturnValue().Set( instance );
-// The pass off to the blas libraries
-      cblas_sgemm(
-        CblasColMajor,
-        CblasNoTrans,
-        CblasNoTrans,
-        self->m_,
-        other->n_,
-        self->n_,
-        1.f,
-        self->data_,
-        self->m_,
-        other->data_,
-        other->m_,
-        0.f,
-        result->data_,
-       result->m_ );
-    }
-  }
+  WrappedArray::MulHelper( args, false, 1 ) ;
 }
 
 
@@ -762,6 +713,11 @@ void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
 */
 
 void WrappedArray::Mulp( const v8::FunctionCallbackInfo<v8::Value>& args ) {
+  WrappedArray::MulHelper( args, true, 1 ) ;
+}
+
+
+void WrappedArray::MulHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
 
@@ -775,50 +731,39 @@ void WrappedArray::Mulp( const v8::FunctionCallbackInfo<v8::Value>& args ) {
     Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
     Local<Function> cons = Local<Function>::New(isolate, constructor);
     Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-
     scope.Escape( instance ) ;
-    WrappedArray::PrepareNonBlocking( args, 1, WrappedArray::MulpWorkAsync, instance ) ;
+    WrappedArray::PrepareNonBlocking( args, block, callbackIndex, WrappedArray::MulpWorkAsync, instance ) ;
   } else {   // not a number other item is a matrix
-    WrappedArray *other = ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());
-
-    if( self->n_ != other->m_ ) {
-      char *msg = new char[ 1000 ] ;
-      snprintf( msg, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
-      WrappedArray::ErrorNonBlocking( args, 1, msg ) ;
-      delete msg ;
-    } else {
-      const unsigned argc = 2;
-      Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,other->n_ ) };
-      Local<Function> cons = Local<Function>::New(isolate, constructor);
-      Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
-      scope.Escape( instance ) ;
-      WrappedArray::PrepareNonBlocking( args, 1, WrappedArray::MulpWorkAsync, instance ) ;
-    }
+    WrappedArray *other = ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());    
+    const unsigned argc = 2;
+    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,other->n_ ) };
+    Local<Function> cons = Local<Function>::New(isolate, constructor);
+    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+    scope.Escape( instance ) ;
+    WrappedArray::PrepareNonBlocking( args, block, callbackIndex, WrappedArray::MulpWorkAsync, instance ) ;
   }
 }
 
 
 
-
-void WrappedArray::PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) {
+void WrappedArray::PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) {
   Isolate* isolate = args.GetIsolate();
 
   EscapableHandleScope scope(isolate) ;
   WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-
 // Work is used to pass info into our execution threda
   Work *work = new Work();
   work->request.data = work;   // 1st is to set the work so the thread can see our Work struct
-
-// Get the 2 matrices to multiply ( or a scalar )
-
+  work->err = NULL ;
+// Store the 2 matrices to multiply ( or a scalar )
   if( args[0]->IsNumber() ) {
     work->otherNumber = args[0]->NumberValue() ;
     work->other = NULL ;
   } else {    
-    WrappedArray *other = ( callbackIndex < 1 ) ? NULL : ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());
+    WrappedArray *other = ( callbackIndex == 0 ) ? NULL : ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject() );
     work->other = other ;
   }
+
   work->self = self ;
   work->result = ObjectWrap::Unwrap<WrappedArray>( instance )  ;
   
@@ -828,7 +773,8 @@ void WrappedArray::PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>
 
 // If we have a second arg - it should be a callback
 // So setup the Work struct in Promise or callback mode
-  if( callbackIndex>=0 ) {
+
+  if( block ) {
     if( args[callbackIndex]->IsUndefined() ) {
       Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
       work->resolver.Reset(isolate, resolver ) ;
@@ -842,32 +788,45 @@ void WrappedArray::PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>
 // OK - all acceptable - create the thread and we're done
   if( work->resolver.IsEmpty() && work->callback.IsEmpty() ) {
     work_cb( &work->request ) ;
+    WrappedArray::WorkAsyncComplete( &work->request, -1 ) ;
+    args.GetReturnValue().Set( instance ) ;
+/*
     Local<Object> rc = Local<Object>::New(isolate,work->resultLocal) ;
     work->resultLocal.Reset();	// free the persistent storage
     args.GetReturnValue().Set( rc ) ;
+    if( work->err != NULL ) {
+      WrappedArray::ErrorNonBlocking( args, callbackIndex, work->err ) ;
+      delete work->err ;
+    }
+*/
   } else {
     uv_queue_work(uv_default_loop(),&work->request, work_cb, WrappedArray::WorkAsyncComplete ) ;
   }
 }
 
-void WrappedArray::ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, int callbackIndex, char *error  ) {
+void WrappedArray::ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, char *error  ) {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
 
   EscapableHandleScope scope(isolate) ;
   Local<String> err = String::NewFromUtf8(isolate, error);
 
-// If we have a second arg - it will be a callback
-// SO setup the Work struct in Promise or callback mode
-  if( args[callbackIndex]->IsUndefined() ) {
-    Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
-    resolver->Reject( context, err ) ;
-    args.GetReturnValue().Set( resolver->GetPromise()  ) ;
+// If we have a callback arg to find - it will be a callback
+// setup the Work struct in Promise or callback mode
+  if( block ) {
+    if( args[callbackIndex]->IsUndefined() ) {
+      Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
+      resolver->Reject( context, err ) ;
+      args.GetReturnValue().Set( resolver->GetPromise()  ) ;
+    } else {
+      Local<Function> callback = Local<Function>::Cast(args[callbackIndex]);
+      Handle<Value> argv[] = { err, Null(isolate) };
+      Local<Function>::New(isolate, callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
+      args.GetReturnValue().Set( Undefined(isolate) ) ;
+    }
   } else {
-    Local<Function> callback = Local<Function>::Cast(args[callbackIndex]);
-    Handle<Value> argv[] = { err, Null(isolate) };
-    Local<Function>::New(isolate, callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
-    args.GetReturnValue().Set( Undefined(isolate) ) ;
+      isolate->ThrowException(Exception::TypeError( err ) );
+      args.GetReturnValue().Set( Undefined(isolate) );
   }
 }
 
@@ -893,22 +852,26 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
     }	
   } else {
     WrappedArray* other = work->other ;
-
-    cblas_sgemm(
-      CblasColMajor,
-      CblasNoTrans,
-      CblasNoTrans,
-      self->m_,
-      other->n_,
-      self->n_,
-      1.f,
-      self->data_,
-      self->m_,
-      other->data_,
-      other->m_,
-      0.f,
-      result->data_,
-      result->m_ );
+    if( self->n_ != other->m_ ) {
+      work->err = new char[ 1000 ] ;
+      snprintf( work->err, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
+    } else {
+      cblas_sgemm(
+          CblasColMajor,
+          CblasNoTrans,
+          CblasNoTrans,
+          self->m_,
+          other->n_,
+          self->n_,
+          1.f,
+          self->data_,
+          self->m_,
+          other->data_,
+          other->m_,
+          0.f,
+          result->data_,
+          result->m_ );
+    }
   }
 }
 
@@ -918,31 +881,41 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
 */
 void WrappedArray::WorkAsyncComplete(uv_work_t *req,int status)
 {
-
-printf( "*** HERE ***\n" ) ;
-
     Isolate * isolate = Isolate::GetCurrent();
     HandleScope scope(isolate) ;
 
     // read work from the uv thread handle
     Work *work = static_cast<Work *>(req->data);
 
+    if( work->err != NULL ) {
+      if( !work->resolver.IsEmpty() ) {
+        Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
+        resolver->Reject( String::NewFromUtf8(isolate, work->err) ) ;
+        work->resolver.Reset();   // free the persistent storage 
+      } else if( !work->callback.IsEmpty() ) {
+        Handle<Value> argv[] = { String::NewFromUtf8(isolate, work->err), Null(isolate) };
+        Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
+        work->callback.Reset();   // free the persistent storage 
+      } else {
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, work->err) ) );
+      }
+      delete work->err ;
+    } else {
     // convert the persistent storage to Local - suitable for a return
-    Local<Object> rc = Local<Object>::New(isolate,work->resultLocal) ;
-    work->resultLocal.Reset();	// free the persistent storage
+      Local<Object> rc = Local<Object>::New(isolate,work->resultLocal) ;
+      work->resultLocal.Reset();	// free the persistent storage
 
 	// Then choose which return method (Promise or callback) to use to return the local<Object>
-    if( !work->callback.IsEmpty() ) {
-      Handle<Value> argv[] = { Null(isolate), rc };
-      Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
-      work->callback.Reset();   // free the persistent storage 
+      if( !work->callback.IsEmpty() ) {
+        Handle<Value> argv[] = { Null(isolate), rc };
+        Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
+        work->callback.Reset();   // free the persistent storage 
+      } else if( !work->resolver.IsEmpty() ) {
+        Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
+        resolver->Resolve( rc ) ;
+        work->resolver.Reset();  // free the persistent storage
+      }
     }
-    if( !work->resolver.IsEmpty() ) {
-      Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
-      resolver->Resolve( rc ) ;
-      work->resolver.Reset();  // free the persistent storage
-    }
-
     delete work;	// finished
 }
 
@@ -1668,72 +1641,87 @@ void WrappedArray::Hadamard( const v8::FunctionCallbackInfo<v8::Value>& args )
 */
 void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
+  WrappedArray::InvHelper( args, false, 0 ) ;
+}
+
+void WrappedArray::Invp( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  WrappedArray::InvHelper( args, true, 0 ) ;
+}
+
+
+
+void WrappedArray::InvHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
 
-  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  EscapableHandleScope scope(isolate) ;
+  
+// Get the matrix to invert
+  WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
 
-  if( self->n_ != self->m_ ) {
-    char *msg = new char[ 1000 ] ;
-    snprintf( msg, 1000, "Incompatible args - inv() requires a square matrix not |%d x %d|. Try pinv() instead.", self->m_, self->n_ ) ;
-    isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
-    delete msg ;
-    args.GetReturnValue().Set( Undefined(isolate) );
-  }
-  else {
-    EscapableHandleScope scope(isolate) ;
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+  scope.Escape( instance ) ;
+  WrappedArray::PrepareNonBlocking( args, block, callbackIndex, WrappedArray::InvpWorkAsync, instance ) ;
+}
 
-    const unsigned argc = 2;
-    Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
-    Local<Function> cons = Local<Function>::New(isolate, constructor);
-    Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
 
-    scope.Escape( instance );
 
-    WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+
+void WrappedArray::InvpWorkAsync( uv_work_t *req )
+{
+  Work *work = static_cast<Work *>(req->data);
+
+  WrappedArray* self = work->self ;
+
+  if( self->m_ != self->n_ ) {
+    work->err = new char[ 1000 ] ;
+    snprintf( work->err, 1000, "Incompatible args: |%d x %d| should be a square matrix for inv()", self->m_, self->n_ ) ;
+  } else {
+    WrappedArray* result = work->result ;
+
     int sz = result->m_ * result->n_ ;
     for( int i=0 ; i<sz ; i++ ) {
       result->data_[i] = self->data_[i] ;
     }
 
-    args.GetReturnValue().Set( instance );
-
     int *ipiv = new int[ std::min( self->m_, self->n_) ] ;
     int rc = LAPACKE_sgetrf(
-      CblasColMajor,
-      result->m_,
-      result->n_,
-      result->data_,
-      result->m_,
-      ipiv ) ;
-    if( rc != 0 ) {
-      char *msg = new char[ 1000 ] ;
-      if( rc>0 ) {
-        snprintf( msg, 1000, "This matrix is singular and cannot be inverted" ) ;
-      } else {
-        snprintf( msg, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
-      }
-      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
-      delete msg  ;
-      args.GetReturnValue().Set( Undefined(isolate) );
-    } else {
-      rc = LAPACKE_sgetri(
         CblasColMajor,
+        result->m_,
         result->n_,
         result->data_,
-        result->n_,
+        result->m_,
         ipiv ) ;
+    if( rc != 0 ) {
+      work->err = new char[ 1000 ] ;
+      if( rc>0 ) {
+        snprintf( work->err, 1000, "This matrix is singular and cannot be inverted" ) ;
+      } else {
+        snprintf( work->err, 1000, "Internal failure - sgetrf() failed with %d", rc ) ;
+      }
+    } else {
+      rc = LAPACKE_sgetri(
+          CblasColMajor,
+          result->n_,
+          result->data_,
+          result->n_,
+          ipiv ) ;
       if( rc != 0 ) {
-        char *msg = new char[ 1000 ] ;
-        snprintf( msg, 1000, "Internal failure - sgetri() failed with %d", rc ) ;
-        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
-        delete msg ;
-        args.GetReturnValue().Set( Undefined(isolate) );
+        work->err = new char[ 1000 ] ;
+        snprintf( work->err, 1000, "Internal failure - sgetri() failed with %d", rc ) ;
       }
     }
     delete ipiv ;
   }
 }
+
+
+
+
 
 
 /**
@@ -2472,17 +2460,18 @@ void WrappedArray::GetCoeff(Local<String> property, const PropertyCallbackInfo<V
 
   if ( str == "m") {
     info.GetReturnValue().Set(Number::New(isolate, obj->m_));
-  }
-  else if (str == "n") {
+  } else if (str == "n") {
     info.GetReturnValue().Set(Number::New(isolate, obj->n_));
-  }
-  else if (str == "length") {
+  } else if (str == "length") {
     info.GetReturnValue().Set(Number::New(isolate, obj->n_*obj->m_ ));
-  }
-  else if (str == "maxPrint") {
+  } else if (str == "maxPrint") {
     info.GetReturnValue().Set(Number::New(isolate, obj->maxPrint_ ));
+  } else if (str == "name" && obj->name_ != NULL ) {
+    info.GetReturnValue().Set( String::NewFromUtf8(isolate, obj->name_) ) ;
   }
 }
+
+
 
 
 /**
@@ -2499,7 +2488,13 @@ void WrappedArray::SetCoeff(Local<String> property, Local<Value> value, const Pr
 
   if ( str == "maxPrint") {
     obj->maxPrint_ = value->NumberValue();
+  } else if (str == "name" ) {
+    char *c = new char[value->ToString()->Length()] ;
+    value->ToString()->WriteOneByte( (uint8_t*)c, 0, 32 ) ;
+    delete obj->name_ ;
+    obj->name_ = c;
   }
+
 }
 
 /**
