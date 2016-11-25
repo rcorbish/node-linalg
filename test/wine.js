@@ -27,12 +27,11 @@ linalg.read( csvStream )
 	var theta = X[0].transpose() ;
 	theta.name = 'Theta' ;
 	theta.maxPrint = 200 ;
-	console.log( "Theta:", theta ) ;
+	console.log( theta ) ;
         var predicted = X[1].mul( X[0] ) ;
         predicted.maxPrint = 200 ;
         predicted.name = 'Predicted' ;
-	console.log( "Predicted", predicted ) ;
-	
+	console.log( predicted ) ;
 })
 .catch( function(err) {
 	console.log( "Fail", err ) ;

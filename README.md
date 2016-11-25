@@ -116,7 +116,7 @@ compatible shapes)
 
 
 ## linear regression 
-OK we'll start with a complex example, why not? It showcases the non-blocking 
+OK we'll try a more complex example. It showcases the non-blocking 
 features of the library. 
 
 This implements the linear regression simple cals: ``` theta = inv(X' X) X' y ```
@@ -124,37 +124,10 @@ where X' is a transpose operation ( thanks MATLAB )
 
 This needs fast-csv ``` npm install fast-csv```
 
-```
-var linalg = require('lalg');
-var fs = require('fs');
-var csv = require("fast-csv");
+Click [here](https://github.com/rcorbish/node-linalg/blob/master/test/wine.js) for a sample. 
+Linear regression as a first step. 
 
-const rr = fs.createReadStream('wine.csv');
-var csvStream = csv() ;
-rr.pipe(csvStream);
+Plot the results (in a spreadsheet for example) to see if we're accurate. Don't worry we'll do better 
+with logistic regression.
 
-linalg.read( csvStream ) 
-.then( function(X) { 
-  	var y = X.removeColumn() ;
-	var COV = X.transpose().mulp(X);
-	return Promise.all( [ COV, X, y ] )  ;
-})
-.then( function(X) { 
-	var Z = X[0].inv().mulp( X[1].transpose() ) ;
-	return Promise.all( [ Z, X[1], X[2] ] ) ;
-})
-.then( function(X) { 
-	return Promise.all( [ X[0].mulp( X[2] ), X[1], X[2] ] ) ;
-})
-.then( function(X) { 
-	console.log( "Theta", X[0] ) ;
-        var predicted = X[1].mul( X[0] ) ;
-	console.log( "Predicted", predicted ) ;
-	
-})
-.catch( function(err) {
-	console.log( "Fail", err ) ;
-});
-
-```
 
