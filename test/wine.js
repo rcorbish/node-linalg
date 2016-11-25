@@ -13,8 +13,11 @@ rr.pipe(csvStream);
 linalg.read( csvStream ) 
 .then( function(X) { 
   	var y = X.removeColumn() ;
-	H = X.hadamard( X )  ; // square of each element in X -> H
-	X = X.appendColumns( H ) ;  // add the features to X
+        var tmp = X.dup() ;
+        for( var i=7 ; i<tmp.n ; i++ ) {		// now create new features by combining two features
+  	  H = tmp.hadamard( tmp.rotateColumns(i) )  ;   // feature x * feature y -> H
+	  X = X.appendColumns( H ) ;  			// add the features to X
+        }
 	return Promise.all( [ X.transpose().mulp(X), X, y ] )  ;
 })
 .then( function(X) { 

@@ -3,7 +3,6 @@ FROM ubuntu:16.04
 USER root
 
 RUN apt-get update && \
-        apt-get -y install apt-utils && \
         apt-get -y install curl && \
         apt-get -y install xz-utils && \
         curl -L -s https://nodejs.org/dist/v7.2.0/node-v7.2.0-linux-x64.tar.xz -o node-v7.2.0-linux-x64.tar.xz  && \

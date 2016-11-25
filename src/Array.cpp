@@ -73,7 +73,10 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "getColumns", GetCols);
       NODE_SET_PROTOTYPE_METHOD(tpl, "appendColumns", AppendCols );
       NODE_SET_PROTOTYPE_METHOD(tpl, "removeColumn", RemoveCol);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "rotateColumns", RotateCols);
       NODE_SET_PROTOTYPE_METHOD(tpl, "reshape", Reshape);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "set", Set);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "get", Get);
 
 
       // Factories - call these on the module - to create a new array
@@ -236,7 +239,10 @@ class WrappedArray : public node::ObjectWrap
     static void GetCols( const FunctionCallbackInfo<v8::Value>& args  );
     static void RemoveCol( const FunctionCallbackInfo<v8::Value>& args  );
     static void AppendCols( const FunctionCallbackInfo<v8::Value>& args  );
+    static void RotateCols( const FunctionCallbackInfo<v8::Value>& args  );
     static void Reshape( const FunctionCallbackInfo<v8::Value>& args  );
+    static void Get( const FunctionCallbackInfo<v8::Value>& args  );
+    static void Set( const FunctionCallbackInfo<v8::Value>& args  );
 
     static void GetCoeff(Local<String> property, const PropertyCallbackInfo<Value>& info);
     static void SetCoeff(Local<String> property, Local<Value> value, const PropertyCallbackInfo<void>& info);
@@ -338,6 +344,106 @@ void WrappedArray::Inspect( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   ToString( args ) ;
 }
+
+
+
+/** 
+	Get a value from the matrix
+
+	Returns a value from the matrix at the X,Y. If the target is a vector
+	only the first argument is used.
+
+	@param [in,default=0] M the row index
+	@param [in,default=0] N the column index
+	@return the value in the matrix at location (m,n)
+*/
+void WrappedArray::Get( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+//  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+
+  int m = args[0]->IsUndefined() ? 0 : args[0]->NumberValue() ;
+  if( self->isVector ) {
+    if( m>self->m_ * self->n_) {
+      char *msg = new char[1000] ;
+      snprintf( msg, 1000, "Array index (%d) out of bounds for a vector length %d", m, (self->m_ * self->n_) ) ;
+      Local<String> err = String::NewFromUtf8(isolate, msg);
+      isolate->ThrowException(Exception::TypeError( err ) );
+      delete msg ;
+    } else {
+      args.GetReturnValue().Set( self->data_[m] );
+    }
+  } else {
+    int n = args[1]->IsUndefined() ? 0 : args[1]->NumberValue() ;
+    if( m>self->m_ || n>self->n_) {
+      char *msg = new char[1000] ;
+      snprintf( msg, 1000, "Array index (%d,%d) out of bounds  for matrix |%d x %d|", m, n, self->m_, self->n_ ) ;
+      Local<String> err = String::NewFromUtf8(isolate, msg);
+      isolate->ThrowException(Exception::TypeError( err ) );
+      delete msg ;
+    } else {
+      args.GetReturnValue().Set( self->data_[m+n*self->m_] );
+    }
+  }
+}
+
+
+
+
+/** 
+	Set a value in the matrix
+
+	Overwrites a the value in the matrix at the X,Y. If the target is a vector
+	only the first argument is used. 
+
+	@param [in] the value to set into the matrix
+	@param [in,default=0] M the row index
+	@param [in,default=0] N the column index
+	@return the previous value in the matrix at location (m,n)
+*/
+void WrappedArray::Set( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+//  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+
+  if( args[0]->IsUndefined() ) {
+    Local<String> err = String::NewFromUtf8(isolate, "Missing value to set into a matrix");
+    isolate->ThrowException(Exception::TypeError( err ) );
+  } else {
+    float newValue = args[0]->NumberValue() ;
+    int m = args[1]->IsUndefined() ? 0 : args[1]->NumberValue() ;
+    if( self->isVector ) {
+      if( m>self->m_ * self->n_) {
+        char *msg = new char[1000] ;
+        snprintf( msg, 1000, "Array index (%d) out of bounds for a vector length %d", m, (self->m_ * self->n_) ) ;
+        Local<String> err = String::NewFromUtf8(isolate, msg);
+        isolate->ThrowException(Exception::TypeError( err ) );
+        delete msg ;
+      } else {
+        args.GetReturnValue().Set( self->data_[m] );
+        self->data_[m] = newValue ;
+      }
+    } else {
+      int n = args[2]->IsUndefined() ? 0 : args[2]->NumberValue() ;
+      if( m>self->m_ || n>self->n_) {
+        char *msg = new char[1000] ;
+        snprintf( msg, 1000, "Array index (%d,%d) out of bounds  for matrix |%d x %d|", m, n, self->m_, self->n_ ) ;
+        Local<String> err = String::NewFromUtf8(isolate, msg);
+        isolate->ThrowException(Exception::TypeError( err ) );
+        delete msg ;
+      } else {
+        args.GetReturnValue().Set( self->data_[m+n*self->m_] );
+        self->data_[m+n*self->m_] = newValue ;
+      }
+    }
+  }
+}
+
+
 
 /** 
 	Duplicate a matrix
@@ -1367,7 +1473,6 @@ void WrappedArray::RemoveCol( const v8::FunctionCallbackInfo<v8::Value>& args )
 }
 
 
-
 /**
 	Append columns to a matrix
 
@@ -1420,6 +1525,75 @@ void WrappedArray::AppendCols( const v8::FunctionCallbackInfo<v8::Value>& args )
   // then append the vectors !
   memcpy( result->data_+(self->n_ * self->m_), other->data_, other->n_*other->m_*sizeof(float) ) ;
 }
+
+
+
+
+/**
+	Rotate columns in a matrix
+
+	Rotate column vectors. A positive number means rotate to the left, a negative number rotates
+	to the right. The rotation count is internally and silently limited using modulus the 
+	number of columns. 
+
+	\code{.js}
+
+	B = A.rotateColumns( 1 ) ;
+	C = A.rotateColumns( -2 ) ;
+	
+	\endcode
+
+            | 1.00 2.00 3.00 4.00 5.00 |
+        A = | 1.00 2.00 3.00 4.00 5.00 |
+            | 1.00 2.00 3.00 4.00 5.00 |
+
+
+            | 2.00 3.00 4.00 5.00 1.00 |
+        B = | 2.00 3.00 4.00 5.00 1.00 |
+            | 2.00 3.00 4.00 5.00 1.00 |
+
+
+            | 4.00 5.00 1.00 2.00 3.00 |
+        C = | 4.00 5.00 1.00 2.00 3.00 |
+            | 4.00 5.00 1.00 2.00 3.00 |
+
+
+	@param [in,default=1] the rotation count.
+	@return a new matrix containing the rotated columns.
+*/
+void WrappedArray::RotateCols( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  int rotationCount = args[0]->IsUndefined() ? 1 : args[0]->NumberValue() ;
+
+  EscapableHandleScope scope(isolate) ; ;
+
+  // make a new matrix M x N 
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor) ;
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape(instance);
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+
+  if( rotationCount < 0 ) {   
+    rotationCount = self->n_ + rotationCount ;
+  }
+  rotationCount %= self->n_ ;
+
+  // copy part 1 of the data
+  memcpy( result->data_, self->data_+(self->m_*rotationCount), (self->n_-rotationCount) * self->m_*sizeof(float) ) ;
+  // then append the vectors !
+  memcpy( result->data_+(self->m_*(self->n_-rotationCount)), self->data_, rotationCount * self->m_*sizeof(float) ) ;
+}
+
+
+
 
 
 
@@ -2051,13 +2225,16 @@ void WrappedArray::Svd( const v8::FunctionCallbackInfo<v8::Value>& args )
   WrappedArray* vt = ObjectWrap::Unwrap<WrappedArray>(VT);
   WrappedArray* s = ObjectWrap::Unwrap<WrappedArray>(S);
 
-  float *superb = new float[ self->m_ * self->n_ ] ;
+  float *data = new float[ self->m_ * self->n_ ] ;
+  memcpy( data, self->data_, sizeof(float) * self->m_ * self->n_ ) ; 
+
+  float *superb = new float[ ::min(self->m_,self->n_) ] ;
   int rc = LAPACKE_sgesvd(
     CblasColMajor,
     'A', 'A',
     self->m_,
     self->n_,
-    self->data_,
+    data,
     self->m_,
     s->data_,
     u->data_,
@@ -2067,6 +2244,7 @@ void WrappedArray::Svd( const v8::FunctionCallbackInfo<v8::Value>& args )
     superb ) ;
 
   delete superb ;
+  delete data ;
 
   if( rc != 0 ) {
     char *msg = new char[ 1000 ] ;
