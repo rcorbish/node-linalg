@@ -350,12 +350,12 @@ void WrappedArray::Inspect( const v8::FunctionCallbackInfo<v8::Value>& args )
 /** 
 	Get a value from the matrix
 
-	Returns a value from the matrix at the X,Y. If the target is a vector
-	only the first argument is used.
+	Returns a value from the matrix at the X,Y. If a single index is given it is used an an absolute
+	address into the underlying store. Negative indices count from the end.
 
-	@param [in,default=0] M the row index
-	@param [in,default=0] N the column index
-	@return the value in the matrix at location (m,n)
+	@param [in,default=0] M the row index ( or the absolute index is N is missing )
+	@param [in,optional] N the column index
+	@return the value in the matrix at required
 */
 void WrappedArray::Get( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
@@ -365,25 +365,28 @@ void WrappedArray::Get( const v8::FunctionCallbackInfo<v8::Value>& args )
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
 
   int m = args[0]->IsUndefined() ? 0 : args[0]->NumberValue() ;
-  if( self->isVector ) {
-    if( m>self->m_ * self->n_) {
+  if( args[1]->IsUndefined() ) {
+    if( ::abs(m)>=(self->m_ * self->n_)) {
       char *msg = new char[1000] ;
-      snprintf( msg, 1000, "Array index (%d) out of bounds for a vector length %d", m, (self->m_ * self->n_) ) ;
+      snprintf( msg, 1000, "Array index (%d) out of bounds, max length is %d", m, ((self->m_ * self->n_)-1) ) ;
       Local<String> err = String::NewFromUtf8(isolate, msg);
       isolate->ThrowException(Exception::TypeError( err ) );
       delete msg ;
     } else {
+      if( m<0) m = (self->m_ * self->n_) - m - 1 ;
       args.GetReturnValue().Set( self->data_[m] );
     }
   } else {
-    int n = args[1]->IsUndefined() ? 0 : args[1]->NumberValue() ;
-    if( m>self->m_ || n>self->n_) {
+    int n = args[1]->NumberValue() ;
+    if( ::abs(m)>=self->m_ || ::abs(n)>=self->n_) {
       char *msg = new char[1000] ;
       snprintf( msg, 1000, "Array index (%d,%d) out of bounds  for matrix |%d x %d|", m, n, self->m_, self->n_ ) ;
       Local<String> err = String::NewFromUtf8(isolate, msg);
       isolate->ThrowException(Exception::TypeError( err ) );
       delete msg ;
     } else {
+      if( m<0) m = self->m_ - m - 1 ;
+      if( n<0) n = self->n_ - n - 1 ;
       args.GetReturnValue().Set( self->data_[m+n*self->m_] );
     }
   }
@@ -396,11 +399,12 @@ void WrappedArray::Get( const v8::FunctionCallbackInfo<v8::Value>& args )
 	Set a value in the matrix
 
 	Overwrites a the value in the matrix at the X,Y. If the target is a vector
-	only the first argument is used. 
+	only the first argument is used. If a single index is given it is used an an absolute
+	address into the underlying store. Negative indices count from the end.
 
-	@param [in] the value to set into the matrix
-	@param [in,default=0] M the row index
-	@param [in,default=0] N the column index
+	@param [in] value to set into the matrix
+	@param [in,default=0] M the row index ( or the absolute index is N is missing )
+	@param [in,optional] N the column index
 	@return the previous value in the matrix at location (m,n)
 */
 void WrappedArray::Set( const v8::FunctionCallbackInfo<v8::Value>& args )
@@ -416,26 +420,29 @@ void WrappedArray::Set( const v8::FunctionCallbackInfo<v8::Value>& args )
   } else {
     float newValue = args[0]->NumberValue() ;
     int m = args[1]->IsUndefined() ? 0 : args[1]->NumberValue() ;
-    if( self->isVector ) {
-      if( m>self->m_ * self->n_) {
+    if( args[2]->IsUndefined() ) {
+      if( ::abs(m)>=(self->m_ * self->n_)) {
         char *msg = new char[1000] ;
-        snprintf( msg, 1000, "Array index (%d) out of bounds for a vector length %d", m, (self->m_ * self->n_) ) ;
+        snprintf( msg, 1000, "Array index (%d) out of bounds, max length is %d", m, ((self->m_ * self->n_)-1) ) ;
         Local<String> err = String::NewFromUtf8(isolate, msg);
         isolate->ThrowException(Exception::TypeError( err ) );
         delete msg ;
       } else {
+	if( m<0) m = (self->m_ * self->n_) - m - 1 ;
         args.GetReturnValue().Set( self->data_[m] );
         self->data_[m] = newValue ;
       }
     } else {
-      int n = args[2]->IsUndefined() ? 0 : args[2]->NumberValue() ;
-      if( m>self->m_ || n>self->n_) {
+      int n = args[2]->NumberValue() ;
+      if( ::abs(m)>=self->m_ || ::abs(n)>=self->n_) {
         char *msg = new char[1000] ;
         snprintf( msg, 1000, "Array index (%d,%d) out of bounds  for matrix |%d x %d|", m, n, self->m_, self->n_ ) ;
         Local<String> err = String::NewFromUtf8(isolate, msg);
         isolate->ThrowException(Exception::TypeError( err ) );
         delete msg ;
       } else {
+	if( m<0) m = self->m_ - m - 1 ;
+	if( n<0) n = self->n_ - n - 1 ;
         args.GetReturnValue().Set( self->data_[m+n*self->m_] );
         self->data_[m+n*self->m_] = newValue ;
       }
@@ -449,8 +456,6 @@ void WrappedArray::Set( const v8::FunctionCallbackInfo<v8::Value>& args )
 	Duplicate a matrix
 
 	Returns a new matrix which is an identical copy of the target
-
-	It takes 0 args:
 */
 void WrappedArray::Dup( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
