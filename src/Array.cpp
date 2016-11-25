@@ -30,7 +30,7 @@ void CreateObject(const FunctionCallbackInfo<Value>& info) ;
 class WrappedArray : public node::ObjectWrap
 {
   public:
-    /**
+    /*
        Initialize the prototype of class Array. Called when the module is loaded.
        ALl the methods and attributes are defined here.
     */
@@ -71,6 +71,7 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "getRows", GetRows);
       NODE_SET_PROTOTYPE_METHOD(tpl, "removeRow", RemoveRow);
       NODE_SET_PROTOTYPE_METHOD(tpl, "getColumns", GetCols);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "appendColumns", AppendCols );
       NODE_SET_PROTOTYPE_METHOD(tpl, "removeColumn", RemoveCol);
       NODE_SET_PROTOTYPE_METHOD(tpl, "reshape", Reshape);
 
@@ -93,13 +94,13 @@ class WrappedArray : public node::ObjectWrap
       constructor.Reset(isolate, tpl->GetFunction());
       exports->Set(String::NewFromUtf8(isolate, "Array"), tpl->GetFunction());
     }
-    /**
+    /*
 	The nodejs constructor. 
 	@see New
     */
     static Local<Object> NewInstance(const FunctionCallbackInfo<Value>& args);
   private:
-   /**
+   /*
 	The C++ constructor, creates an mxn array.
    */
     explicit WrappedArray(int m=0, int n=0) : m_(m), n_(n) {
@@ -107,8 +108,9 @@ class WrappedArray : public node::ObjectWrap
       data_ = new float[dataSize_] ;
       isVector = m==1 || n== 1 ;
       name_ = NULL ;
+      maxPrint_ = 10 ;
     }
-    /**
+    /*
 	The destructor needs to free the data buffer
     */
     ~WrappedArray() { 
@@ -116,7 +118,7 @@ class WrappedArray : public node::ObjectWrap
         delete name_ ;
     }
 
-    /**
+    /*
 	The nodejs constructor 
 	It takes up to 3 args: 
 	@param [in] number of rows (m) defaults to 0
@@ -233,6 +235,7 @@ class WrappedArray : public node::ObjectWrap
     static void RemoveRow( const FunctionCallbackInfo<v8::Value>& args  );
     static void GetCols( const FunctionCallbackInfo<v8::Value>& args  );
     static void RemoveCol( const FunctionCallbackInfo<v8::Value>& args  );
+    static void AppendCols( const FunctionCallbackInfo<v8::Value>& args  );
     static void Reshape( const FunctionCallbackInfo<v8::Value>& args  );
 
     static void GetCoeff(Local<String> property, const PropertyCallbackInfo<Value>& info);
@@ -246,9 +249,9 @@ class WrappedArray : public node::ObjectWrap
     int dataSize_ ;  /**< private - used to remember the last data allocation size */
     int maxPrint_ ;  /**< the number of rows & columns to print out in toString() */
     char *name_ ; /**< The name of this matrix - useful for keeping track of things */
+   
     static void DataCallback(const FunctionCallbackInfo<Value>& args) ;
     static void DataEndCallback(const FunctionCallbackInfo<Value>& args) ;
-
     static void PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) ;
     static void ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, char *error ) ;
 
@@ -299,9 +302,9 @@ void WrappedArray::ToString( const v8::FunctionCallbackInfo<v8::Value>& args )
 
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
 
-  int mm = std::min( self->m_, 10 ) ;
-  int nn = std::min( self->n_, 10 ) ;
-  char *rc = new char[ 100 + (mm * nn * 50) ] ;   // allocate a big array. This can still overflow :( TODO: fix this crap
+  int mm = std::min( self->m_, self->maxPrint_ ) ;
+  int nn = std::min( self->n_, self->maxPrint_ ) ;
+  char *rc = new char[ 100 + (mm * nn * 50 * self->maxPrint_ ) ] ;   // allocate a big array. This can still overflow :( TODO: fix this crap
   int n = 0 ;
   if( self->name_ != NULL ) {
   	n = sprintf( rc, "[ %s ] ", self->name_ ) ;
@@ -832,7 +835,7 @@ void WrappedArray::ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& 
 
 
 
-/**
+/*
 	Handle the body of the multiply thread. Read the two matrices from
 	the Work structure, do the multiply and return
 */
@@ -875,7 +878,7 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
   }
 }
 
-/**
+/*
 	When the multiply thread is done, get the result from the 'work'
 	and call either the Promise or callback success methods.
 */
@@ -1364,6 +1367,62 @@ void WrappedArray::RemoveCol( const v8::FunctionCallbackInfo<v8::Value>& args )
 }
 
 
+
+/**
+	Append columns to a matrix
+
+	Append column vectors. The target is expanded to have N+K columns. The matrix should
+	have the same length as the matrix.m ( rows ). K is the width of the added column matrix
+
+
+	\code{.js}
+
+        var MATRIX = lalg.rand(10,6) ;
+        var V = lalg.rand(3,10) ;
+	var R = MATRIX.appendColumns(V) ;
+	
+	\endcode
+
+	@param [in] the column(s) to append to the matrix
+	@return a new matrix containing the additional column.
+*/
+void WrappedArray::AppendCols( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+  WrappedArray *other = ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());    
+
+  EscapableHandleScope scope(isolate) ; ;
+
+// Matching sizes? same #rows - or any vector of length M
+  if( other->m_!= self->m_ ) {
+      char *msg = new char[ 1000 ] ;
+      snprintf( msg, 1000, "Incompatible args: |%d x %d| append |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
+      isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, msg)));
+      delete msg ;
+      args.GetReturnValue().Set( Undefined(isolate) );
+  }
+
+  // make a new matrix M x N+K  ( K = other cols )
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ + other->n_ ) };
+  Local<Function> cons = Local<Function>::New(isolate, constructor) ;
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
+
+  scope.Escape(instance);
+  WrappedArray* result = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
+  args.GetReturnValue().Set( instance );
+
+  // copy the original data 
+  memcpy( result->data_, self->data_, self->n_ * self->m_*sizeof(float) ) ;
+  // then append the vectors !
+  memcpy( result->data_+(self->n_ * self->m_), other->data_, other->n_*other->m_*sizeof(float) ) ;
+}
+
+
+
 /**
 	Reshape the matrix
 
@@ -1631,7 +1690,7 @@ void WrappedArray::Hadamard( const v8::FunctionCallbackInfo<v8::Value>& args )
 
 
 /**
-	Get the matrix inverse of a square matrix
+	Matrix inverse
 
 	Calculate the inverse of a matrix. A matrix inverse multiplied by itself
 	is an identity matrix. The input matrix must be square. A newly created 
@@ -1644,6 +1703,18 @@ void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
   WrappedArray::InvHelper( args, false, 0 ) ;
 }
 
+/**
+	Matrix inverse
+
+	Calculate the inverse of a matrix. A matrix inverse multiplied by itself
+	is an identity matrix. The input matrix must be square. The return is a
+	promise ( no args ) or, if a callback function is provided undefined.
+	A newly created inverse is resolved into the promise or the callback;
+	the original remains intact.
+
+	@param [in,optional] a callback function prototype = function(err,inv) { }
+	@return a promise (if the callback function is not given)
+*/
 void WrappedArray::Invp( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   WrappedArray::InvHelper( args, true, 0 ) ;
@@ -1730,6 +1801,9 @@ void WrappedArray::InvpWorkAsync( uv_work_t *req )
 	Calculate the pseudo inverse of a matrix. A matrix multiplied by its 
 	pseudo inverse is an identity matrix. A newly created inverse is 
 	returned, the original remains intact.
+
+        This seems to have a problem with vectors - don't invert a vector
+        until we know what it may mean.
 
 	@return the new matrix pseudo inverse of the target
 */
@@ -2253,9 +2327,9 @@ void WrappedArray::Ones( const FunctionCallbackInfo<v8::Value>& args )
 
 
 /** 
-	Returns a new matrix with all values set to a random integer between -5 and 5
+	Returns a new matrix with all values set to a random integer between -10 and 10 (inclusive)
 	
-	The randomness isn't very good, so keep this for testing
+	The randomness isn't very good, it's used for testing.
 
 	@param the number of rows (m) defaults to 0
 	@param the number of columns (n) defaults to m
@@ -2279,12 +2353,12 @@ void WrappedArray::Rand( const v8::FunctionCallbackInfo<v8::Value>& args )
   WrappedArray* self = node::ObjectWrap::Unwrap<WrappedArray>( instance ) ;
   int sz = self->m_ * self->n_ ;
   for( int i=0 ; i<sz ; i++ ) {
-    self->data_[i] = ( rand() % 10 ) - 5 ;
+    self->data_[i] = ( rand() % 21 ) - 10 ;
   }
   args.GetReturnValue().Set( instance );
 }
 
-/**
+/*
 	This is the callback function that is called when reading
 	a new array from a stream.
 
@@ -2338,7 +2412,7 @@ void WrappedArray::DataCallback(const FunctionCallbackInfo<Value>& args) {
   self->n_++ ;
 }
 
-/**
+/*
 	After the data is read this method is called. All we do here is to 
 	transpose the array. As a side effect we do resize the array buffer.
 */
@@ -2443,7 +2517,7 @@ void WrappedArray::Read( const v8::FunctionCallbackInfo<v8::Value>& args )
 
 }
 
-/**
+/*
 	This is a nodejs defined method to get attributes. 
 	It's pretty simple to follow - we return one of the following
 	- m count of rows
@@ -2474,7 +2548,7 @@ void WrappedArray::GetCoeff(Local<String> property, const PropertyCallbackInfo<V
 
 
 
-/**
+/*
 	This is a nodejs defined method to set writeable attributes. 
 
 	@see Reshape (to adjust m and n)
@@ -2497,7 +2571,7 @@ void WrappedArray::SetCoeff(Local<String> property, Local<Value> value, const Pr
 
 }
 
-/**
+/*
 	Use for the new operators on the module. Not meant to be
 	called directly.
 
@@ -2509,7 +2583,7 @@ void CreateObject(const FunctionCallbackInfo<Value>& info)
   info.GetReturnValue().Set(WrappedArray::NewInstance(info) );
 }
 
-/**
+/*
 	The module init script - called by nodejs at load time
 */
 void InitArray(Local<Object> exports, Local<Object> module)

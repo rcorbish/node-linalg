@@ -13,6 +13,8 @@ rr.pipe(csvStream);
 linalg.read( csvStream ) 
 .then( function(X) { 
   	var y = X.removeColumn() ;
+	H = X.hadamard( X )  ; // square of each element in X -> H
+	X = X.appendColumns( H ) ;  // add the features to X
 	return Promise.all( [ X.transpose().mulp(X), X, y ] )  ;
 })
 .then( function(X) { 
@@ -22,8 +24,13 @@ linalg.read( csvStream )
 	return Promise.all( [ X[0].mulp( X[2] ), X[1], X[2] ] ) ;
 })
 .then( function(X) { 
-	console.log( "Theta:", X[0].transpose() ) ;
+	var theta = X[0].transpose() ;
+	theta.name = 'Theta' ;
+	theta.maxPrint = 200 ;
+	console.log( "Theta:", theta ) ;
         var predicted = X[1].mul( X[0] ) ;
+        predicted.maxPrint = 200 ;
+        predicted.name = 'Predicted' ;
 	console.log( "Predicted", predicted ) ;
 	
 })

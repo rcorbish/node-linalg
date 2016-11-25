@@ -5,8 +5,7 @@
 This module integrates the efficient libraries created by really smart folks
 into the rich javascript environment provided by nodejs. 
 
-At present this is in pre-alpha ( == void? ). It's tested in real world ML
-apps and holds up very well. 
+At present this is in alpha mode. It's tested in real ML apps and holds up very well. 
 
 I need to make the install easier - sorry. Check the Docker file for linux
 prerequistes. 
@@ -16,6 +15,7 @@ Of note:
 * underlying data type is float (can we template this?)
 * matrices are stored in column major order (for cuda compatibility) 
 * limited validation of inputs is present in this version (to be be improved) 
+* more non-blocking options ( e.g. svdp and pinvp )
 
 # Help
 * need anyone who can build on windows
@@ -23,8 +23,8 @@ Of note:
 
 # Coming Soon
 * NVIDIA CUDA support - beta testing in progress (20kx20k mul() in 500ms!!!)
-* caffe integration - let's get the caffe chaps' good work into a real environment (running for cover)
-* human brain integration - (stretch goal)
+* caffe integration - let's get the caffe chaps' good work into nodejs :)
+
 
 # Installation
 
@@ -59,7 +59,8 @@ Verify correct installation by: ``` node node_modules/lalg/test/test.js ```
 # API 
 
 This is the C++ docs, which shows all the nodejs functions and a few
-examples. I'll keep this up to date as the unerlying code changes.
+examples. I'll keep this up to date as the unerlying code changes. NB.
+the javascript calls start with lowercase letters.
 
 [documentation](https://rcorbish.ydns.eu/lalg/classWrappedArray.html)
 
