@@ -12,19 +12,17 @@
 using namespace std;
 using namespace v8;
 
-
-
-
+// forward reference only
 void CreateObject(const FunctionCallbackInfo<Value>& info) ;
+
 /**
  This is the main class to represent a matrix. It is a nodejs compatible
  object.
 
- Arrays are stored in column order, this is to simplify access to (some)
+ Matrices are stored in column order, this is to simplify access to (some)
  libraries (esp. cuda). The internal data type is always a float, which is
  good enough for most situations. The comments for the C++ code contain
  some javascript examples
-  
 
 */
 class WrappedArray : public node::ObjectWrap
@@ -40,7 +38,8 @@ class WrappedArray : public node::ObjectWrap
       // Prepare constructor template and name of the class
       Local<FunctionTemplate> tpl = FunctionTemplate::New(isolate, New);
       tpl->SetClassName(String::NewFromUtf8(isolate, "Array"));
-      tpl->InstanceTemplate()->SetInternalFieldCount(4);
+      tpl->InstanceTemplate()->SetInternalFieldCount(1);
+
 
       // Prototype - methods. These can be called from javascript
       NODE_SET_PROTOTYPE_METHOD(tpl, "toString", ToString);
@@ -79,6 +78,14 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "get", Get);
 
 
+     // NODE_SET_PROTOTYPE_METHOD(tpl, Symbol::GetIterator(isolate), MakeIterator);
+     // do this by hand to use Symbol::GetIterator
+      Local<Signature> sig = Signature::New(isolate, tpl);
+      Local<FunctionTemplate> t = v8::FunctionTemplate::New(isolate, MakeIterator, v8::Local<v8::Value>(), sig);
+      t->SetClassName(String::NewFromUtf8(isolate, "data"));
+      tpl->PrototypeTemplate()->Set(Symbol::GetIterator(isolate), t);
+
+
       // Factories - call these on the module - to create a new array
       NODE_SET_METHOD(exports, "eye", Eye);
       NODE_SET_METHOD(exports, "ones", Ones);
@@ -88,6 +95,7 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_METHOD(exports, "read", Read);
 
       // define how we access the attributes
+   //   tpl->InstanceTemplate()->SetAccessor(Local<String>::Cast( Symbol::GetIterator(isolate) ) , GetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "m"), GetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "n"), GetCoeff);
       tpl->InstanceTemplate()->SetAccessor(String::NewFromUtf8(isolate, "length"), GetCoeff);
@@ -153,6 +161,7 @@ class WrappedArray : public node::ObjectWrap
 
         if( self != NULL ) {  // double check we managed to create something
           self->Wrap(args.This());
+//          args.This()->SetInternalField(0, External::New(isolate, self));
           args.GetReturnValue().Set(args.This());
         }
         else {
@@ -244,6 +253,8 @@ class WrappedArray : public node::ObjectWrap
     static void Get( const FunctionCallbackInfo<v8::Value>& args  );
     static void Set( const FunctionCallbackInfo<v8::Value>& args  );
 
+    static void MakeIterator( const FunctionCallbackInfo<v8::Value>& args  );
+
     static void GetCoeff(Local<String> property, const PropertyCallbackInfo<Value>& info);
     static void SetCoeff(Local<String> property, Local<Value> value, const PropertyCallbackInfo<void>& info);
 
@@ -255,11 +266,11 @@ class WrappedArray : public node::ObjectWrap
     int dataSize_ ;  /**< private - used to remember the last data allocation size */
     int maxPrint_ ;  /**< the number of rows & columns to print out in toString() */
     char *name_ ; /**< The name of this matrix - useful for keeping track of things */
-   
+
+    static void NextCallback( const v8::FunctionCallbackInfo<v8::Value>& args ) ;
     static void DataCallback(const FunctionCallbackInfo<Value>& args) ;
     static void DataEndCallback(const FunctionCallbackInfo<Value>& args) ;
-    static void PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) ;
-    static void ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, char *error ) ;
+    static void PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) ;
 
     static void WorkAsyncComplete(uv_work_t *req,int status) ;
     static void InvpWorkAsync(uv_work_t *req) ;
@@ -391,7 +402,6 @@ void WrappedArray::Get( const v8::FunctionCallbackInfo<v8::Value>& args )
     }
   }
 }
-
 
 
 
@@ -804,6 +814,7 @@ void WrappedArray::Transpose( const v8::FunctionCallbackInfo<v8::Value>& args )
 */
 void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
+/* The actual multiplication code is in MulpWorkAsync */
   WrappedArray::MulHelper( args, false, 1 ) ;
 }
 
@@ -824,13 +835,17 @@ void WrappedArray::Mul( const v8::FunctionCallbackInfo<v8::Value>& args )
 	@param [in] the other matrix
 	@param [in] a callback of prototype function(err,MATRIX){ }
 	@return a promise which will resolve to a new Matrix
-*/
 
+*/
 void WrappedArray::Mulp( const v8::FunctionCallbackInfo<v8::Value>& args ) {
+/* The actual multiplication code is in MulpWorkAsync */
   WrappedArray::MulHelper( args, true, 1 ) ;
 }
 
-
+/*
+	This sets up the inputs and outputs (into a Work struct). That structure is
+ 	passed to the execution thread, which runs MulpWorkAsync.
+*/
 void WrappedArray::MulHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
@@ -839,14 +854,15 @@ void WrappedArray::MulHelper( const v8::FunctionCallbackInfo<v8::Value>& args, b
   
 // Get the 2 matrices to multiply
   WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-
+// 2 choices - multiply by a scalar ( args[0] is a scalar)
+// The matrix results may be different sizes depending on scalar or matrix multiply mode
   if( args[0]->IsNumber() ) { 
     const unsigned argc = 2;
     Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
     Local<Function> cons = Local<Function>::New(isolate, constructor);
     Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
     scope.Escape( instance ) ;
-    WrappedArray::PrepareNonBlocking( args, block, callbackIndex, WrappedArray::MulpWorkAsync, instance ) ;
+    WrappedArray::PrepareWork( args, block, callbackIndex, WrappedArray::MulpWorkAsync, instance ) ;
   } else {   // not a number other item is a matrix
     WrappedArray *other = ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject());    
     const unsigned argc = 2;
@@ -854,109 +870,24 @@ void WrappedArray::MulHelper( const v8::FunctionCallbackInfo<v8::Value>& args, b
     Local<Function> cons = Local<Function>::New(isolate, constructor);
     Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
     scope.Escape( instance ) ;
-    WrappedArray::PrepareNonBlocking( args, block, callbackIndex, WrappedArray::MulpWorkAsync, instance ) ;
+    WrappedArray::PrepareWork( args, block, callbackIndex, WrappedArray::MulpWorkAsync, instance ) ;
   }
 }
-
-
-
-void WrappedArray::PrepareNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) {
-  Isolate* isolate = args.GetIsolate();
-
-  EscapableHandleScope scope(isolate) ;
-  WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-// Work is used to pass info into our execution threda
-  Work *work = new Work();
-  work->request.data = work;   // 1st is to set the work so the thread can see our Work struct
-  work->err = NULL ;
-// Store the 2 matrices to multiply ( or a scalar )
-  if( args[0]->IsNumber() ) {
-    work->otherNumber = args[0]->NumberValue() ;
-    work->other = NULL ;
-  } else {    
-    WrappedArray *other = ( callbackIndex == 0 ) ? NULL : ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject() );
-    work->other = other ;
-  }
-
-  work->self = self ;
-  work->result = ObjectWrap::Unwrap<WrappedArray>( instance )  ;
-  
-// It seems to be best that we create the result in the caller's context
-// So we do it here
-  work->resultLocal.Reset( isolate, instance ) ;
-
-// If we have a second arg - it should be a callback
-// So setup the Work struct in Promise or callback mode
-
-  if( block ) {
-    if( args[callbackIndex]->IsUndefined() ) {
-      Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
-      work->resolver.Reset(isolate, resolver ) ;
-      args.GetReturnValue().Set( resolver->GetPromise()  ) ;
-    } else if( args[callbackIndex]->IsFunction() ) {
-      Local<Function> callback = Local<Function>::Cast(args[1]);
-      work->callback.Reset(isolate, callback ) ;
-      args.GetReturnValue().Set( Undefined(isolate) ) ;
-    }
-  }
-// OK - all acceptable - create the thread and we're done
-  if( work->resolver.IsEmpty() && work->callback.IsEmpty() ) {
-    work_cb( &work->request ) ;
-    WrappedArray::WorkAsyncComplete( &work->request, -1 ) ;
-    args.GetReturnValue().Set( instance ) ;
-/*
-    Local<Object> rc = Local<Object>::New(isolate,work->resultLocal) ;
-    work->resultLocal.Reset();	// free the persistent storage
-    args.GetReturnValue().Set( rc ) ;
-    if( work->err != NULL ) {
-      WrappedArray::ErrorNonBlocking( args, callbackIndex, work->err ) ;
-      delete work->err ;
-    }
-*/
-  } else {
-    uv_queue_work(uv_default_loop(),&work->request, work_cb, WrappedArray::WorkAsyncComplete ) ;
-  }
-}
-
-void WrappedArray::ErrorNonBlocking( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, char *error  ) {
-  Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext() ;
-
-  EscapableHandleScope scope(isolate) ;
-  Local<String> err = String::NewFromUtf8(isolate, error);
-
-// If we have a callback arg to find - it will be a callback
-// setup the Work struct in Promise or callback mode
-  if( block ) {
-    if( args[callbackIndex]->IsUndefined() ) {
-      Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
-      resolver->Reject( context, err ) ;
-      args.GetReturnValue().Set( resolver->GetPromise()  ) ;
-    } else {
-      Local<Function> callback = Local<Function>::Cast(args[callbackIndex]);
-      Handle<Value> argv[] = { err, Null(isolate) };
-      Local<Function>::New(isolate, callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
-      args.GetReturnValue().Set( Undefined(isolate) ) ;
-    }
-  } else {
-      isolate->ThrowException(Exception::TypeError( err ) );
-      args.GetReturnValue().Set( Undefined(isolate) );
-  }
-}
-
 
 
 /*
 	Handle the body of the multiply thread. Read the two matrices from
-	the Work structure, do the multiply and return
+	the Work structure, do the multiply and return.
+	This may, or may not, be called in a different thread that the caller's context
+	Be aware of Local<...> and Persistent<...> data elements.
 */
 void WrappedArray::MulpWorkAsync(uv_work_t *req) {
-  Work *work = static_cast<Work *>(req->data);
+  Work *work = static_cast<Work *>(req->data);   
 
-  WrappedArray* self = work->self ;
+  WrappedArray* self = work->self ;	// setup in PrepareWork
   WrappedArray* result = work->result ;
 
-  if( work->other == NULL ) {
+  if( work->other == NULL ) {	// no other matrix? Then we'll use a scalar multiply
     float x = work->otherNumber ;
     int sz = self->m_ * self->n_ ;
     float *data = result->data_ ;
@@ -967,7 +898,7 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
   } else {
     WrappedArray* other = work->other ;
     if( self->n_ != other->m_ ) {
-      work->err = new char[ 1000 ] ;
+      work->err = new char[ 1000 ] ;	// set the error flag and abort
       snprintf( work->err, 1000, "Incompatible args: |%d x %d| x |%d x %d|", self->m_, self->n_, other->m_, other->n_ ) ;
     } else {
       cblas_sgemm(
@@ -989,53 +920,10 @@ void WrappedArray::MulpWorkAsync(uv_work_t *req) {
   }
 }
 
-/*
-	When the multiply thread is done, get the result from the 'work'
-	and call either the Promise or callback success methods.
-*/
-void WrappedArray::WorkAsyncComplete(uv_work_t *req,int status)
-{
-    Isolate * isolate = Isolate::GetCurrent();
-    HandleScope scope(isolate) ;
-
-    // read work from the uv thread handle
-    Work *work = static_cast<Work *>(req->data);
-
-    if( work->err != NULL ) {
-      if( !work->resolver.IsEmpty() ) {
-        Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
-        resolver->Reject( String::NewFromUtf8(isolate, work->err) ) ;
-        work->resolver.Reset();   // free the persistent storage 
-      } else if( !work->callback.IsEmpty() ) {
-        Handle<Value> argv[] = { String::NewFromUtf8(isolate, work->err), Null(isolate) };
-        Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
-        work->callback.Reset();   // free the persistent storage 
-      } else {
-        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, work->err) ) );
-      }
-      delete work->err ;
-    } else {
-    // convert the persistent storage to Local - suitable for a return
-      Local<Object> rc = Local<Object>::New(isolate,work->resultLocal) ;
-      work->resultLocal.Reset();	// free the persistent storage
-
-	// Then choose which return method (Promise or callback) to use to return the local<Object>
-      if( !work->callback.IsEmpty() ) {
-        Handle<Value> argv[] = { Null(isolate), rc };
-        Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
-        work->callback.Reset();   // free the persistent storage 
-      } else if( !work->resolver.IsEmpty() ) {
-        Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
-        resolver->Resolve( rc ) ;
-        work->resolver.Reset();  // free the persistent storage
-      }
-    }
-    delete work;	// finished
-}
 
 /**
-	Asum - sum absolute values into a single number
-	@return the sum of all absolute values in the array
+	sum all absolute value of each element
+	@return the sum of all absolute values in the matrix
 */
 void WrappedArray::Asum( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
@@ -1054,8 +942,8 @@ void WrappedArray::Asum( const v8::FunctionCallbackInfo<v8::Value>& args )
 	column vector. If the target is a vector this will just 
 	sum all the elements into a single number.
 
-	@param [in] the dimension to sum - 0 = sum columns, 1 = sum rows. Default is 0
-	@return the vector of the summed columns or rows. In the case that the target is a vector this is a number
+	@param [in,default=0] the dimension to sum - 0 = sum columns, 1 = sum rows.
+	@return the vector of the summed columns or rows or a number if the target is a vector.
 */
 void WrappedArray::Sum( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
@@ -1114,14 +1002,13 @@ void WrappedArray::Sum( const v8::FunctionCallbackInfo<v8::Value>& args )
 
 
 /**
-	Get the norm of rows or columns of a matrix into a vector
+	Euclidian norm of rows or columns of a matrix
 
 	This calculates the norms of a row or column of a matrix into a row or
-	column vector. If the target is a vector this will just 
-	return the norm as a number.
+	column vector. If the target is a vector this will return the norm as a number.
 
-	@param [in] the dimension to sum - 0 = sum columns, 1 = sum rows. Default is 0
-	@return the vector of the summed columns or rows. In the case that the target is a vector this is a number
+	@param [in,default=0] the dimension to sum - 0 = sum columns, 1 = sum rows
+	@return the vector of the norms of columns or rows or a number if the target is a vector.
 */
 void WrappedArray::Norm( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
@@ -1184,13 +1071,13 @@ void WrappedArray::Norm( const v8::FunctionCallbackInfo<v8::Value>& args )
 
 
 /**
-	Get the mean of rows or columns of a matrix into a vector
+	mean of rows or columns of a matrix 
 
 	This calculates the mean of rows or columns of a matrix into a row or
 	column vector. If the target is a vector this will return the mean of
 	all the elements into a single number.
 
-	@param [in] the dimension to inspect - 0 = mean of columns, 1 = mean of rows. Default is 0
+	@param [in,default=0] the dimension to inspect - 0 = mean of columns, 1 = mean of rows.
 	@return the vector of the mean of columns or rows. In the case that the target is a vector, this is a number
 */
 void WrappedArray::Mean( const v8::FunctionCallbackInfo<v8::Value>& args )
@@ -1270,7 +1157,7 @@ void WrappedArray::Mean( const v8::FunctionCallbackInfo<v8::Value>& args )
 	
 	\endcode
 
-	@param [in] the rows to copy from the array default=0, may be a number or an array of numbers
+	@param [in,default=0] the rows to copy from the matrix, may be a number or an array of numbers
 	@return a new matrix containing the copies of the requested rows.
 */
 void WrappedArray::GetRows( const v8::FunctionCallbackInfo<v8::Value>& args )
@@ -1328,7 +1215,7 @@ void WrappedArray::GetRows( const v8::FunctionCallbackInfo<v8::Value>& args )
 	Remove a row from a matrix
 
 	Return a vector which is the requested row of the target. The target is 
-	shrunk to have M-1 rows.
+	shrunk to have M-1 rows. This is not very efficient.
 
 	\code{.js}
 
@@ -1385,7 +1272,7 @@ void WrappedArray::RemoveRow( const v8::FunctionCallbackInfo<v8::Value>& args )
 	
 	\endcode
 
-	@param [in] the column indices to copy from the array default=0, may be a number or an array of numbers
+	@param [in,default=0] the column indices to copy from the array , may be a number or an array of numbers
 	@return a new matrix containing the copies of the requested columns.
 */
 void WrappedArray::GetCols( const v8::FunctionCallbackInfo<v8::Value>& args )
@@ -1445,7 +1332,7 @@ void WrappedArray::GetCols( const v8::FunctionCallbackInfo<v8::Value>& args )
 	
 	\endcode
 
-	@param [in] the column index (zero based) to remove from the array default=0
+	@param [in,default=0] the column index (zero based) to remove from the array
 	@return a column vector containing the extracted column.
 */
 void WrappedArray::RemoveCol( const v8::FunctionCallbackInfo<v8::Value>& args )
@@ -1483,7 +1370,6 @@ void WrappedArray::RemoveCol( const v8::FunctionCallbackInfo<v8::Value>& args )
 
 	Append column vectors. The target is expanded to have N+K columns. The matrix should
 	have the same length as the matrix.m ( rows ). K is the width of the added column matrix
-
 
 	\code{.js}
 
@@ -1540,6 +1426,8 @@ void WrappedArray::AppendCols( const v8::FunctionCallbackInfo<v8::Value>& args )
 	Rotate column vectors. A positive number means rotate to the left, a negative number rotates
 	to the right. The rotation count is internally and silently limited using modulus the 
 	number of columns. 
+
+	If there is a requirement to rotate rows, transpose the matrix then call this, the transpose back.
 
 	\code{.js}
 
@@ -1610,8 +1498,8 @@ void WrappedArray::RotateCols( const v8::FunctionCallbackInfo<v8::Value>& args )
 	elements are initialized to zero. This operation is done in place - the target is
 	changed. The default is to produce a (M*N)x1 vector is no paramters are given.
 
-	@param [in] the number of rows to have in the new shape (default )
-	@param [in] the number of columsn to have in the new shape (default 1)
+	@param [in,default=m*n] the number of rows to have in the new shape
+	@param [in,default=1] the number of columns to have in the new shape
 */
 void WrappedArray::Reshape( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
@@ -1879,6 +1767,7 @@ void WrappedArray::Hadamard( const v8::FunctionCallbackInfo<v8::Value>& args )
 */
 void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
+/* Actual work done in InvpWorkAsync */
   WrappedArray::InvHelper( args, false, 0 ) ;
 }
 
@@ -1896,6 +1785,7 @@ void WrappedArray::Inv( const v8::FunctionCallbackInfo<v8::Value>& args )
 */
 void WrappedArray::Invp( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
+/* Actual work done in InvpWorkAsync */
   WrappedArray::InvHelper( args, true, 0 ) ;
 }
 
@@ -1915,7 +1805,7 @@ void WrappedArray::InvHelper( const v8::FunctionCallbackInfo<v8::Value>& args, b
   Local<Function> cons = Local<Function>::New(isolate, constructor);
   Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked() ;
   scope.Escape( instance ) ;
-  WrappedArray::PrepareNonBlocking( args, block, callbackIndex, WrappedArray::InvpWorkAsync, instance ) ;
+  WrappedArray::PrepareWork( args, block, callbackIndex, WrappedArray::InvpWorkAsync, instance ) ;
 }
 
 
@@ -2541,6 +2431,137 @@ void WrappedArray::Rand( const v8::FunctionCallbackInfo<v8::Value>& args )
   args.GetReturnValue().Set( instance );
 }
 
+
+/*
+	This creates an iterator object so we can iterate over the
+	elements of a matrix. The nodejs engine is very fussy on what is returned here
+	if you use this as a template be careful.
+*/
+void WrappedArray::MakeIterator( const FunctionCallbackInfo<v8::Value>& args  )
+{
+  Isolate* isolate = args.GetIsolate();
+  EscapableHandleScope scope(isolate) ;
+
+  Local<Object> xtra = Object::New(isolate) ;	// xtra stuff used by the iterator (how to get next)
+  xtra->Set(String::NewFromUtf8(isolate, "index"), Integer::New( isolate,0 ) );
+  xtra->Set(String::NewFromUtf8(isolate, "array"), args.Holder() ) ;
+
+  // create an object (result) to return from the call to @@iterator 
+  Local<Object> result = Object::New(isolate);   
+  scope.Escape( result ) ;
+  args.GetReturnValue().Set( result );
+
+  // then set 1 function on the result prototype: 'next'
+  Local<FunctionTemplate> tplNext = FunctionTemplate::New(isolate, WrappedArray::NextCallback, xtra );
+  tplNext->SetClassName(String::NewFromUtf8(isolate, "next"));
+  result->Set(String::NewFromUtf8(isolate, "next"), tplNext->GetFunction() );
+}
+
+
+/*
+	This is the callback for the iterator, it uses a temporary data structure (xtra)
+	to hold the index and a reference to the wrapped array.
+*/
+void WrappedArray::NextCallback( const v8::FunctionCallbackInfo<v8::Value>& args ) {
+
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+  EscapableHandleScope scope(isolate) ;
+  
+  Local<Object> xtra = Local<Object>::Cast( args.Data() ) ;
+  // index++
+  Local<Value> indexValue = xtra->Get( context, String::NewFromUtf8(isolate, "index") ).ToLocalChecked() ;
+  int index = indexValue->NumberValue() ;
+  xtra->Set(String::NewFromUtf8(isolate, "index"), Integer::New( isolate, index+1 ) );
+
+  // access the underlying matrix we are iterating over (from xtra params)
+  Local<Value> array = xtra->Get( context, String::NewFromUtf8(isolate, "array") ).ToLocalChecked() ;  
+  Local<Object> obj = Local<Object>::Cast( array ) ;
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>( obj );
+
+  Local<Object> result = Object::New(isolate);   // the return from next() as an object
+  if( index>=(self->m_*self->n_) ) {
+    result->Set(String::NewFromUtf8(isolate, "value"), Undefined(isolate) ) ;
+    result->Set(String::NewFromUtf8(isolate, "done"),  Boolean::New( isolate, true ) ) ;
+  } else {
+    result->Set(String::NewFromUtf8(isolate, "value"), Number::New( isolate,self->data_[index] ) ) ;
+    result->Set(String::NewFromUtf8(isolate, "done"),  Boolean::New( isolate, false ) ) ;
+  }
+
+  scope.Escape( result ) ;
+  args.GetReturnValue().Set( result );
+}
+
+
+/**
+	Read a matrix from a stream
+
+	This takes a stream which emits data events for each row. One such stream is the fast-csv.
+
+	\code{.js}
+	
+	var lalg = require('lalg');
+	var fs = require('fs');
+	var csv = require("fast-csv");
+
+	const rr = fs.createReadStream('wine.csv');
+	var csvStream = csv() ;
+	rr.pipe(csvStream);
+
+	lalg.read( csvStream )
+	.then( function(X) {
+	        console.log( X ) ;
+	.catch( function(err) {
+	        console.log( "Fail", err ) ;
+	});
+
+	\endcode
+
+	@param a stream that presents data events with a single Array of numbers
+	@return a Promise that will resolve to a matrix
+*/
+void WrappedArray::Read( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+  EscapableHandleScope scope(isolate) ; ;
+  
+  const unsigned argc = 2;
+  Local<Value> argv[argc] = { Integer::New( isolate, 0 ), Integer::New( isolate, 0 )  };
+  Local<Function> cons = Local<Function>::New(isolate, constructor);
+  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked();
+
+  scope.Escape(instance);
+
+  Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
+  args.GetReturnValue().Set( resolver->GetPromise() ) ;
+
+  Local<Object> xtra = Object::New(isolate);
+  xtra->Set(String::NewFromUtf8(isolate, "array"), instance ) ;
+  xtra->Set(String::NewFromUtf8(isolate, "promise"), resolver ) ;
+
+  Local<Object> readable = args[0]->ToObject() ;
+  Local<Value> ontmp = readable->Get( context, String::NewFromUtf8(isolate, "on") ).ToLocalChecked() ;
+  Local<Function> on = Local<Function>::Cast( ontmp ) ;
+
+  Local<FunctionTemplate> tplData = FunctionTemplate::New(isolate, WrappedArray::DataCallback, xtra );
+  Local<Function> fnData = tplData->GetFunction();
+  Local<Value> argv2[2] = { String::NewFromUtf8(isolate, "data"), fnData };
+  on->CallAsFunction( context, readable, 2, argv2 );
+
+  Local<FunctionTemplate> tplDataEnd = FunctionTemplate::New(isolate, WrappedArray::DataEndCallback, xtra );
+  Local<Function> fnDataEnd = tplDataEnd->GetFunction();
+  Local<Value> argv3[2] = { String::NewFromUtf8(isolate, "end"), fnDataEnd };
+  on->CallAsFunction( context, readable, 2, argv3 );
+
+}
+
+
+
+
+
+
+
 /*
 	This is the callback function that is called when reading
 	a new array from a stream.
@@ -2637,68 +2658,129 @@ void WrappedArray::DataEndCallback(const FunctionCallbackInfo<Value>& args ) {
 }
 
 
-/**
-	Read a matrix from a stream
 
-	This takes a stream which emits data events for each row. One such stream is the fast-csv.
 
-	\code{.js}
-	
-	var lalg = require('lalg');
-	var fs = require('fs');
-	var csv = require("fast-csv");
 
-	const rr = fs.createReadStream('wine.csv');
-	var csvStream = csv() ;
-	rr.pipe(csvStream);
 
-	lalg.read( csvStream )
-	.then( function(X) {
-	        console.log( X ) ;
-	.catch( function(err) {
-	        console.log( "Fail", err ) ;
-	});
+/*
+	A generic method to be used for all non-blocking code. It should not have any instruction
+	specific code in here. 
+	This prepares the Work struct in a gneral way:
+	* create the Work struct:
+	* set the thread data in Work with itself
+	* clear the err flag ( a char* for an error message, which will be passed back to caller )
+	* if the 1st argument to the original caller is a number use it
+	* if the 1st argument to the original caller exists assume it's another matrix
+	* set the provided result to the work struct
+	* if there's nothing provided at args[callbackIndex] create a promise
+	* if a function is  provided at args[callbackIndex] use it as a callback
 
-	\endcode
-
-	@param a stream that presents data events with a single Array of numbers
-	@return a Promise that will resolve to a matrix
+	Then if we're in non-blocking mode - create a new thread to run the provided work function. If
+	we're in blocking mode just call the provided work function directly
 */
-void WrappedArray::Read( const v8::FunctionCallbackInfo<v8::Value>& args )
-{
+void WrappedArray::PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) {
   Isolate* isolate = args.GetIsolate();
-  Local<Context> context = isolate->GetCurrentContext() ;
-  EscapableHandleScope scope(isolate) ; ;
+
+  EscapableHandleScope scope(isolate) ;
+  WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
+// Work is used to pass info into our execution threda
+  Work *work = new Work();
+  work->request.data = work;   // 1st is to set the work so the thread can see our Work struct
+  work->err = NULL ;
+
+  if( args[0]->IsNumber() ) {
+    work->otherNumber = args[0]->NumberValue() ;
+    work->other = NULL ;
+  } else {    
+    WrappedArray *other = ( callbackIndex == 0 ) ? NULL : ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject() );
+    work->other = other ;
+  }
+
+  work->self = self ;
+  work->result = ObjectWrap::Unwrap<WrappedArray>( instance )  ;
   
-  const unsigned argc = 2;
-  Local<Value> argv[argc] = { Integer::New( isolate, 0 ), Integer::New( isolate, 0 )  };
-  Local<Function> cons = Local<Function>::New(isolate, constructor);
-  Local<Object> instance = cons->NewInstance(context, argc, argv).ToLocalChecked();
+// It seems to be best that we create the result in the caller's context
+// So we do it here
+  work->resultLocal.Reset( isolate, instance ) ;
 
-  scope.Escape(instance);
+// If we have a second arg - it should be a callback
+// So setup the Work struct in Promise or callback mode
 
-  Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
-  args.GetReturnValue().Set( resolver->GetPromise() ) ;
-
-  Local<Object> xtra = Object::New(isolate);
-  xtra->Set(String::NewFromUtf8(isolate, "array"), instance ) ;
-  xtra->Set(String::NewFromUtf8(isolate, "promise"), resolver ) ;
-
-  Local<Object> readable = args[0]->ToObject() ;
-  Local<Value> ontmp = readable->Get( context, String::NewFromUtf8(isolate, "on") ).ToLocalChecked() ;
-  Local<Function> on = Local<Function>::Cast( ontmp ) ;
-
-  Local<FunctionTemplate> tplData = FunctionTemplate::New(isolate, WrappedArray::DataCallback, xtra );
-  Local<Function> fnData = tplData->GetFunction();
-  Local<Value> argv2[2] = { String::NewFromUtf8(isolate, "data"), fnData };
-  on->CallAsFunction( context, readable, 2, argv2 );
-
-  Local<FunctionTemplate> tplDataEnd = FunctionTemplate::New(isolate, WrappedArray::DataEndCallback, xtra );
-  Local<Function> fnDataEnd = tplDataEnd->GetFunction();
-  Local<Value> argv3[2] = { String::NewFromUtf8(isolate, "end"), fnDataEnd };
-  on->CallAsFunction( context, readable, 2, argv3 );
-
+  if( block ) {
+    if( args[callbackIndex]->IsUndefined() ) {
+      Local<Promise::Resolver> resolver = v8::Promise::Resolver::New( isolate ) ;
+      work->resolver.Reset(isolate, resolver ) ;
+      args.GetReturnValue().Set( resolver->GetPromise()  ) ;
+    } else if( args[callbackIndex]->IsFunction() ) {
+      Local<Function> callback = Local<Function>::Cast(args[1]);
+      work->callback.Reset(isolate, callback ) ;
+      args.GetReturnValue().Set( Undefined(isolate) ) ;
+    }
+  }
+// OK - if we don't have a callback or a promise we're in blocking mode
+// execute in the current thread. This calls the 2 UV thread methods
+// directly
+  if( work->resolver.IsEmpty() && work->callback.IsEmpty() ) {
+    work_cb( &work->request ) ;
+    WrappedArray::WorkAsyncComplete( &work->request, -1 ) ;
+    args.GetReturnValue().Set( instance ) ;
+  } else {
+// Otherwise create a new thread to do the work & return
+// The proper return value (undefined for callback mode or a promise is already set)
+    uv_queue_work(uv_default_loop(),&work->request, work_cb, WrappedArray::WorkAsyncComplete ) ;
+  }
 }
+
+
+
+/*
+	When the any work is done, get the result from the 'work'
+	and call either the Promise or callback success methods.
+	This handles the error case too.
+*/
+void WrappedArray::WorkAsyncComplete(uv_work_t *req,int status)
+{
+    Isolate * isolate = Isolate::GetCurrent();
+    HandleScope scope(isolate) ;
+
+    // read work from the uv thread handle
+    Work *work = static_cast<Work *>(req->data);
+
+    if( work->err != NULL ) {
+      if( !work->resolver.IsEmpty() ) {
+        Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
+        resolver->Reject( String::NewFromUtf8(isolate, work->err) ) ;
+        work->resolver.Reset();   // free the persistent storage 
+      } else if( !work->callback.IsEmpty() ) {
+        Handle<Value> argv[] = { String::NewFromUtf8(isolate, work->err), Null(isolate) };
+        Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
+        work->callback.Reset();   // free the persistent storage 
+      } else {
+        isolate->ThrowException(Exception::TypeError( String::NewFromUtf8(isolate, work->err) ) );
+      }
+      delete work->err ;
+    } else {
+    // convert the persistent storage to Local - suitable for a return
+      Local<Object> rc = Local<Object>::New(isolate,work->resultLocal) ;
+      work->resultLocal.Reset();	// free the persistent storage
+
+	// Then choose which return method (Promise or callback) to use to return the local<Object>
+      if( !work->callback.IsEmpty() ) {
+        Handle<Value> argv[] = { Null(isolate), rc };
+        Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
+        work->callback.Reset();   // free the persistent storage 
+      } else if( !work->resolver.IsEmpty() ) {
+        Local<Promise::Resolver> resolver = Local<Promise::Resolver>::New(isolate,work->resolver) ;
+        resolver->Resolve( rc ) ;
+        work->resolver.Reset();  // free the persistent storage
+      }
+    }
+    delete work;	// finished
+}
+
+
+
+
 
 /*
 	This is a nodejs defined method to get attributes. 
@@ -2710,6 +2792,7 @@ void WrappedArray::Read( const v8::FunctionCallbackInfo<v8::Value>& args )
 void WrappedArray::GetCoeff(Local<String> property, const PropertyCallbackInfo<Value>& info)
 {
   Isolate* isolate = info.GetIsolate();
+  //Local<Context> context = isolate->GetCurrentContext() ;
   WrappedArray* obj = ObjectWrap::Unwrap<WrappedArray>(info.This());
 
   v8::String::Utf8Value s(property);

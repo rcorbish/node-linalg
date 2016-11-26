@@ -28,6 +28,12 @@ tot = Math.abs( R.sub( lalg.eye(3) ).sum().sum() ) ;
 console.log( "pinv values    ", (tot<0.001)?"PASS":" *** FAIL ***" ) ;
 
 A = lalg.rand(10) ;
+var arr = Array.from(A) ;
+var sum = arr.reduce(function(a, b) { return a + b; }, 0);
+var sum2 = A.sum().sum() ;
+tot = Math.abs( sum-sum2 ) ;
+console.log( "iterator       ", (arr.length == 100 && tot<0.0001)?"PASS":" *** FAIL ***" ) ;
+
 var CO = A.getColumns() ;
 console.log( "getColumns     ", (CO.m==A.m && CO.n==1)?"PASS":" *** FAIL ***" ) ;
 CO = A.getColumns([0,1,2,3,4,5,6,7,8,9]) ;
