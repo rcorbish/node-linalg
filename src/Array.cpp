@@ -12,6 +12,7 @@
 using namespace std;
 using namespace v8;
 
+
 // forward reference only
 void CreateObject(const FunctionCallbackInfo<Value>& info) ;
 
@@ -69,22 +70,21 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "pca", Pca);
       NODE_SET_PROTOTYPE_METHOD(tpl, "getRows", GetRows);
       NODE_SET_PROTOTYPE_METHOD(tpl, "removeRow", RemoveRow);
-      NODE_SET_PROTOTYPE_METHOD(tpl, "getColumns", GetCols);
-      NODE_SET_PROTOTYPE_METHOD(tpl, "appendColumns", AppendCols );
-      NODE_SET_PROTOTYPE_METHOD(tpl, "removeColumn", RemoveCol);
-      NODE_SET_PROTOTYPE_METHOD(tpl, "rotateColumns", RotateCols);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "getColumns", GetColumns);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "appendColumns", AppendColumns );
+      NODE_SET_PROTOTYPE_METHOD(tpl, "removeColumn", RemoveColumn);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "rotateColumns", RotateColumns);
       NODE_SET_PROTOTYPE_METHOD(tpl, "reshape", Reshape);
       NODE_SET_PROTOTYPE_METHOD(tpl, "set", Set);
       NODE_SET_PROTOTYPE_METHOD(tpl, "get", Get);
 
 
+     // the macro (or inline) doesn't work for a symbol
      // NODE_SET_PROTOTYPE_METHOD(tpl, Symbol::GetIterator(isolate), MakeIterator);
      // do this by hand to use Symbol::GetIterator
-      Local<Signature> sig = Signature::New(isolate, tpl);
-      Local<FunctionTemplate> t = v8::FunctionTemplate::New(isolate, MakeIterator, v8::Local<v8::Value>(), sig);
-      t->SetClassName(String::NewFromUtf8(isolate, "data"));
+      Local<FunctionTemplate> t = v8::FunctionTemplate::New(isolate, MakeIterator);
+      t->SetClassName( String::NewFromUtf8(isolate, "values") );
       tpl->PrototypeTemplate()->Set(Symbol::GetIterator(isolate), t);
-
 
       // Factories - call these on the module - to create a new array
       NODE_SET_METHOD(exports, "eye", Eye);
@@ -130,11 +130,11 @@ class WrappedArray : public node::ObjectWrap
     }
 
     /*
-	The nodejs constructor 
+	The javascript constructor.
 	It takes up to 3 args: 
 	@param [in] number of rows (m) defaults to 0
 	@param [in] number of columns (n) defaults to m
-	@param [in] optional an array of data to use for the array (column major order)
+	@param [in] optional an array of data to use for the array (column major order) or a number to put in all elements
     */
     static void New(const v8::FunctionCallbackInfo<v8::Value>& args) {
       Isolate* isolate = args.GetIsolate();
@@ -157,6 +157,12 @@ class WrappedArray : public node::ObjectWrap
           self = Create(m, n, context, buffer )	;
         } else {  // No array? just create it
           self = Create(m, n) ;
+          if( !args[2]->IsUndefined() && args[2]->IsNumber() ) {
+	    float v = args[2]->NumberValue() ;
+	    for( int i=0 ; i<m*n ; i++ ) {
+	      self->data_[i] = v ;
+	    }
+	  }
         }
 
         if( self != NULL ) {  // double check we managed to create something
@@ -245,10 +251,10 @@ class WrappedArray : public node::ObjectWrap
     static void Pca( const FunctionCallbackInfo<v8::Value>& args  );
     static void GetRows( const FunctionCallbackInfo<v8::Value>& args  );
     static void RemoveRow( const FunctionCallbackInfo<v8::Value>& args  );
-    static void GetCols( const FunctionCallbackInfo<v8::Value>& args  );
-    static void RemoveCol( const FunctionCallbackInfo<v8::Value>& args  );
-    static void AppendCols( const FunctionCallbackInfo<v8::Value>& args  );
-    static void RotateCols( const FunctionCallbackInfo<v8::Value>& args  );
+    static void GetColumns( const FunctionCallbackInfo<v8::Value>& args  );
+    static void RemoveColumn( const FunctionCallbackInfo<v8::Value>& args  );
+    static void AppendColumns( const FunctionCallbackInfo<v8::Value>& args  );
+    static void RotateColumns( const FunctionCallbackInfo<v8::Value>& args  );
     static void Reshape( const FunctionCallbackInfo<v8::Value>& args  );
     static void Get( const FunctionCallbackInfo<v8::Value>& args  );
     static void Set( const FunctionCallbackInfo<v8::Value>& args  );
@@ -1275,7 +1281,7 @@ void WrappedArray::RemoveRow( const v8::FunctionCallbackInfo<v8::Value>& args )
 	@param [in,default=0] the column indices to copy from the array , may be a number or an array of numbers
 	@return a new matrix containing the copies of the requested columns.
 */
-void WrappedArray::GetCols( const v8::FunctionCallbackInfo<v8::Value>& args )
+void WrappedArray::GetColumns( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
@@ -1335,7 +1341,7 @@ void WrappedArray::GetCols( const v8::FunctionCallbackInfo<v8::Value>& args )
 	@param [in,default=0] the column index (zero based) to remove from the array
 	@return a column vector containing the extracted column.
 */
-void WrappedArray::RemoveCol( const v8::FunctionCallbackInfo<v8::Value>& args )
+void WrappedArray::RemoveColumn( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
@@ -1382,7 +1388,7 @@ void WrappedArray::RemoveCol( const v8::FunctionCallbackInfo<v8::Value>& args )
 	@param [in] the column(s) to append to the matrix
 	@return a new matrix containing the additional column.
 */
-void WrappedArray::AppendCols( const v8::FunctionCallbackInfo<v8::Value>& args )
+void WrappedArray::AppendColumns( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
@@ -1454,7 +1460,7 @@ void WrappedArray::AppendCols( const v8::FunctionCallbackInfo<v8::Value>& args )
 	@param [in,default=1] the rotation count.
 	@return a new matrix containing the rotated columns.
 */
-void WrappedArray::RotateCols( const v8::FunctionCallbackInfo<v8::Value>& args )
+void WrappedArray::RotateColumns( const v8::FunctionCallbackInfo<v8::Value>& args )
 {
   Isolate* isolate = args.GetIsolate();
   Local<Context> context = isolate->GetCurrentContext() ;
@@ -2432,10 +2438,20 @@ void WrappedArray::Rand( const v8::FunctionCallbackInfo<v8::Value>& args )
 }
 
 
-/*
-	This creates an iterator object so we can iterate over the
-	elements of a matrix. The nodejs engine is very fussy on what is returned here
-	if you use this as a template be careful.
+/**
+	get javascript iterator
+
+	This creates an iterator object so we can iterate over the elements of a matrix. 
+	
+	\code{.js}
+
+	var lalg = require( "lalg" ) ;
+	var R = lalg.rand( 10,5 ) ;
+	var arr = Array.from( R ) ;
+	
+	\endcode
+
+	@return an object with a method next() that matches specs for an iterator
 */
 void WrappedArray::MakeIterator( const FunctionCallbackInfo<v8::Value>& args  )
 {
@@ -2460,7 +2476,8 @@ void WrappedArray::MakeIterator( const FunctionCallbackInfo<v8::Value>& args  )
 
 /*
 	This is the callback for the iterator, it uses a temporary data structure (xtra)
-	to hold the index and a reference to the wrapped array.
+	to hold the index and a reference to the wrapped array. It's not meant to be called
+	directly, it could be a stand-alone method.
 */
 void WrappedArray::NextCallback( const v8::FunctionCallbackInfo<v8::Value>& args ) {
 
