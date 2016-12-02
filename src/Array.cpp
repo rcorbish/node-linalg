@@ -9,9 +9,17 @@
 #include <cblas.h>
 #include <thread>
 
+#include "cppoptlib/meta.h"
+#include "cppoptlib/problem.h"
+#include "cppoptlib/solver/bfgssolver.h"
+#include "cppoptlib/solver/conjugatedgradientdescentsolver.h"
+#include "cppoptlib/solver/newtondescentsolver.h"
+#include "cppoptlib/solver/neldermeadsolver.h"
+#include "cppoptlib/solver/lbfgssolver.h"
+#include "cppoptlib/solver/cmaessolver.h"
+
 using namespace std;
 using namespace v8;
-
 
 // forward reference only
 void CreateObject(const FunctionCallbackInfo<Value>& info) ;
@@ -28,6 +36,8 @@ void CreateObject(const FunctionCallbackInfo<Value>& info) ;
 */
 class WrappedArray : public node::ObjectWrap
 {
+
+
   public:
     /*
        Initialize the prototype of class Array. Called when the module is loaded.
@@ -75,6 +85,8 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "removeColumn", RemoveColumn);
       NODE_SET_PROTOTYPE_METHOD(tpl, "rotateColumns", RotateColumns);
       NODE_SET_PROTOTYPE_METHOD(tpl, "reshape", Reshape);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "solve", Solve);
+      NODE_SET_PROTOTYPE_METHOD(tpl, "solvep", Solvep);
       NODE_SET_PROTOTYPE_METHOD(tpl, "set", Set);
       NODE_SET_PROTOTYPE_METHOD(tpl, "get", Get);
 
@@ -110,7 +122,7 @@ class WrappedArray : public node::ObjectWrap
 	@see New
     */
     static Local<Object> NewInstance(const FunctionCallbackInfo<Value>& args);
-  private:
+  private: 
    /*
 	The C++ constructor, creates an mxn array.
    */
@@ -256,6 +268,8 @@ class WrappedArray : public node::ObjectWrap
     static void AppendColumns( const FunctionCallbackInfo<v8::Value>& args  );
     static void RotateColumns( const FunctionCallbackInfo<v8::Value>& args  );
     static void Reshape( const FunctionCallbackInfo<v8::Value>& args  );
+    static void Solve( const v8::FunctionCallbackInfo<v8::Value>& args ) ;
+    static void Solvep( const v8::FunctionCallbackInfo<v8::Value>& args ) ;
     static void Get( const FunctionCallbackInfo<v8::Value>& args  );
     static void Set( const FunctionCallbackInfo<v8::Value>& args  );
 
@@ -276,6 +290,7 @@ class WrappedArray : public node::ObjectWrap
     static void NextCallback( const v8::FunctionCallbackInfo<v8::Value>& args ) ;
     static void DataCallback(const FunctionCallbackInfo<Value>& args) ;
     static void DataEndCallback(const FunctionCallbackInfo<Value>& args) ;
+    static void PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance, Local<Object> xtraObj, int xtraInt  ) ;
     static void PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) ;
 
     static void WorkAsyncComplete(uv_work_t *req,int status) ;
@@ -284,6 +299,10 @@ class WrappedArray : public node::ObjectWrap
     static void ReadWorkAsync(uv_work_t *req) ;
     static void MulHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) ;
     static void InvHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) ;
+
+    static void SolveWorkAsync(uv_work_t *req) ;
+    static void SolveHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex ) ;
+
 
     struct Work {
       uv_work_t  request;
@@ -295,7 +314,82 @@ class WrappedArray : public node::ObjectWrap
       WrappedArray* result ;
       char *err ;
       Persistent<Object> resultLocal;
+      Persistent<Object> selfObj;
+      Persistent<Object> xtraObj;
+      Isolate *isolate ;
+      int xtraInt;
     } ;
+
+class UserGradientFunction : public cppoptlib::Problem<float, 2> {
+  public:
+    using typename cppoptlib::Problem<float, 2>::TVector;
+    using typename cppoptlib::Problem<float, 2>::THessian;
+
+
+    UserGradientFunction( Isolate* isolate, WrappedArray* self, Local<Object> instance, Local<Object> suppliedFunctionHolder ) {
+
+	Local<Context> context = isolate->GetCurrentContext() ;
+/*
+  {
+    Local<String> className = suppliedFunctionHolder->GetConstructorName() ;
+    char *c = new char[className->Utf8Length() + 10 ] ;
+    className->WriteUtf8( c ) ;
+    printf( "Self sfh ... %s\n", c ) ;
+    delete c ;
+  }
+*/
+	Local<String> valueKey = String::NewFromUtf8(isolate, "value") ;
+suppliedFunctionHolder->GetPropertyNames( context ) ;
+        MaybeLocal<Value> mlv = suppliedFunctionHolder->Get( context, String::NewFromUtf8(isolate, "value") ) ;
+
+	Local<Value> valuetmp = suppliedFunctionHolder->Get( context, String::NewFromUtf8(isolate, "value") ).ToLocalChecked() ;
+	value_ = Local<Function>::Cast( valuetmp ) ;
+	Local<Value> gradtmp = suppliedFunctionHolder->Get( context, String::NewFromUtf8(isolate, "gradient") ).ToLocalChecked() ;
+	gradient_ = Local<Function>::Cast( gradtmp ) ;
+	self_ = self ;
+	isolate_ = isolate ;
+	instance_ = instance ;
+    }
+    
+    float value(const TVector &x) {
+	for( int i=0 ; i<self_->m_ * self_->n_ ; i++ ) {
+		self_->data_[i] = x[i] ;
+	}
+        Handle<Value> argv[] = { instance_ } ;
+        MaybeLocal<Value> value = value_ -> Call(isolate_->GetCurrentContext()->Global(), 1, argv) ;
+	for( int i=0 ; i<self_->m_ * self_->n_ ; i++ ) {
+		self_->data_[i] = x[i] ;
+	}
+  	
+	float rc = value.ToLocalChecked()->NumberValue() ;
+	return rc ;
+    }
+
+
+    void gradient(const TVector &x, TVector &grad) {
+	for( int i=0 ; i<self_->m_ * self_->n_ ; i++ ) {
+		self_->data_[i] = x[i] ;
+	}
+        Handle<Value> argv[] = { instance_ } ;
+        Local<Value> obj = gradient_ -> Call(isolate_->GetCurrentContext()->Global(), 1, argv) ;
+
+	WrappedArray *gradient = WrappedArray::ObjectWrap::Unwrap<WrappedArray>( obj->ToObject() );
+
+	for( int i=0 ; i<gradient->m_*gradient->n_ ; i++ ) {
+	  grad[i] = gradient->data_[i] ;
+	}
+    }
+
+   private:
+	Local<Function> value_ ;
+	Local<Function> gradient_ ;
+	WrappedArray* self_ ;
+	Isolate* isolate_ ;
+	Local<Object> instance_ ;
+
+};
+
+
 } ;
 Persistent<Function> WrappedArray::constructor;
 
@@ -572,7 +666,7 @@ void WrappedArray::Log( const v8::FunctionCallbackInfo<v8::Value>& args )
   Local<Context> context = isolate->GetCurrentContext() ;
 
   WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
-  EscapableHandleScope scope(isolate) ; ;
+  EscapableHandleScope scope(isolate) ;
 
   const unsigned argc = 2;
   Local<Value> argv[argc] = { Integer::New( isolate,self->m_ ), Integer::New( isolate,self->n_ ) };
@@ -2410,8 +2504,9 @@ void WrappedArray::Ones( const FunctionCallbackInfo<v8::Value>& args )
 	
 	The randomness isn't very good, it's used for testing.
 
-	@param the number of rows (m) defaults to 0
-	@param the number of columns (n) defaults to m
+	@param[in,deafult=0] m the number of rows 
+	@paramin,default=m] n the number of columns
+
 	@return a new matrix, each element is set to a random integer
 */
 void WrappedArray::Rand( const v8::FunctionCallbackInfo<v8::Value>& args )
@@ -2436,6 +2531,148 @@ void WrappedArray::Rand( const v8::FunctionCallbackInfo<v8::Value>& args )
   }
   args.GetReturnValue().Set( instance );
 }
+
+
+
+/** 
+	Solves a function for its minimum
+	
+	Solves the function starting at the given Array based starting position. After
+	this is finished the array is set to the global minimum.
+
+	This requires a gradient function object to be passed as a parameter.
+	The gradient function is an object with two methods:
+	- value( lalg.Array x ) returns Number 
+	- gradient( lalg.Array x ) returns lalg.Array gradients
+	
+	The solver name parameter should be one of
+	- BFGS
+	- CGD
+	- NEWTON
+	- NELDERMEAD
+	- LBFGS	
+	- CMAES
+
+	\code{.js}
+
+	var lalg = require( "lalg" ) ;
+	var R = lalg.rand( 2,1 ) ;
+	function gradFunction() {
+		// f(x,y)
+		this.value = function( x ) {
+			return   x.get(0)*x.get(0) + x.get(1)*x.get(1) - x.get(0) - x.get(1)  ;
+		} ;
+
+		// df(x,y)/dx , df(x,y)/dy
+		this.gradient = function( x ) {
+			var rc = new lalg.Array(x.length, 1 ) ;
+		
+			rc.set( 2*x.get(0) - 1	,0 ) ;
+			rc.set( 2*x.get(1) - 1	,1 ) ;
+			return rc ;
+		}
+	} ;
+
+	var f = new gradFunction() ;
+	A = new lalg.Array( 2, 1, [ 0.1, 0.1] ) ;
+	A.solve( f, "LBFGS" ) ;   
+	console.log( "Actual Min:", f.value(A), "@", Array.from(A) ) ;
+		
+	\endcode
+	
+	
+	@param[in] the function to solve
+	@param[in,default='BFGS'] the solver name one of [ "BFGS", "CGD", "NEWTON","NELDERMEAD", "LBFGS","CMAES" ]
+	
+*/
+void WrappedArray::Solve( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+	WrappedArray::SolveHelper( args, false, 2 ) ;
+}
+
+
+/** 
+	Solves a function for its minimum
+	
+	Solves the function starting at the given Array based starting position. After
+	this is finished the array is set to the global minimum.
+
+	@see Solve
+	
+	@param [in] the function to solve
+	@param [in,default=BFGS"] the solver name one of [ "BFGS", "CGD", "NEWTON","NELDERMEAD", "LBFGS","CMAES" ]
+	@Wparam[in, optional] callback of prototype function(err) {} 
+	
+*/
+void WrappedArray::Solvep( const v8::FunctionCallbackInfo<v8::Value>& args )
+{
+	WrappedArray::SolveHelper( args, true, 2 ) ;
+}
+
+/*
+	This handles the actual solving in an background thread
+*/
+void WrappedArray::SolveHelper( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex )
+{
+  Isolate* isolate = args.GetIsolate();
+  Local<Context> context = isolate->GetCurrentContext() ;
+  EscapableHandleScope scope(isolate) ; ;
+
+  scope.Escape(args.Holder());
+
+  if( args[0]->IsObject() ) {
+      int solverIndex = args[1]->IsUndefined() ? 0 : args[1]->NumberValue() ;
+      if( !args[1]->IsUndefined() && args[1]->IsString() ) {
+	Local<String> solverName = args[1]->ToString() ;
+    	char *c = new char[solverName->Utf8Length()] ;
+	solverName->WriteUtf8( c, 32 ) ;
+	if( !::strcasecmp( "BFGS", c ) ) solverIndex = 0 ;
+	else if( !::strcasecmp( "CGD", c ) ) solverIndex = 1 ;
+	else if( !::strcasecmp( "NEWTON", c ) ) solverIndex = 2 ;
+	else if( !::strcasecmp( "NELDERMEAD", c ) ) solverIndex = 3 ;
+	else if( !::strcasecmp( "LBFGS", c ) ) solverIndex = 4 ;
+	else if( !::strcasecmp( "CMAES", c ) ) solverIndex = 5 ;
+	delete c ;
+      }
+
+	Local<Object> ufg = args[0]->ToObject() ;
+      
+      WrappedArray::PrepareWork( args, block, callbackIndex, WrappedArray::SolveWorkAsync, 
+				 args.Holder(), ufg, solverIndex ) ;
+  }
+}
+
+
+
+/*
+	This calls the solvers in, possibly, a background thread.
+*/
+void WrappedArray::SolveWorkAsync( uv_work_t *req )
+{
+  Work *work = static_cast<Work *>(req->data);
+
+  Isolate *isolate = work->isolate ;
+
+  WrappedArray* self = work->self ;
+
+  Local<Object> selfObj = Local<Object>::New(isolate,work->selfObj) ;
+  Local<Object> userFunctionHolder = Local<Object>::New(isolate,work->xtraObj) ;
+  UserGradientFunction f( isolate, self, selfObj, userFunctionHolder ) ;
+
+  // choose a starting point
+  UserGradientFunction::TVector x(2); x << self->data_[0], self->data_[1] ;
+
+  int solverIndex = work->xtraInt ;
+
+  if( solverIndex==0 ) { cppoptlib::BfgsSolver<UserGradientFunction> solver ; solver.minimize(f, x); }
+  if( solverIndex==1 ) { cppoptlib::ConjugatedGradientDescentSolver<UserGradientFunction> solver ; solver.minimize(f, x); }
+  if( solverIndex==2 ) { cppoptlib::NewtonDescentSolver<UserGradientFunction> solver ; solver.minimize(f, x); }
+  if( solverIndex==3 ) { cppoptlib::NelderMeadSolver<UserGradientFunction> solver ; solver.minimize(f, x); }
+  if( solverIndex==4 ) { cppoptlib::LbfgsSolver<UserGradientFunction> solver ; solver.minimize(f, x); }
+  if( solverIndex==5 ) { cppoptlib::CMAesSolver<UserGradientFunction> solver ; solver.minimize(f, x); }
+
+}
+
 
 
 /**
@@ -2671,7 +2908,6 @@ void WrappedArray::DataEndCallback(const FunctionCallbackInfo<Value>& args ) {
   Local<Promise::Resolver> resolver = Local<Promise::Resolver>::Cast( promise ) ;
   
   resolver->Resolve( obj ) ;
-
 }
 
 
@@ -2694,31 +2930,54 @@ void WrappedArray::DataEndCallback(const FunctionCallbackInfo<Value>& args ) {
 
 	Then if we're in non-blocking mode - create a new thread to run the provided work function. If
 	we're in blocking mode just call the provided work function directly
+
+	@param args, the original args to the function we are making into a promise
+	@param block - will we run in blocking mode (need a callback or we create a promise )
+	@param callbackIndex - which arg might contain a callback, if missing go to promise mode
+	@param work_cb  this is the C++ function that executes the thread body (or direct in direct mode)
 */
 void WrappedArray::PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance ) {
+  WrappedArray::PrepareWork( args, block, callbackIndex, work_cb, instance, Local<Object>(), 0 ) ;
+}
+
+void WrappedArray::PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args, bool block, int callbackIndex, uv_work_cb work_cb, Local<Object> instance, Local<Object> xtraObj, int xtraInt ) {
   Isolate* isolate = args.GetIsolate();
 
   EscapableHandleScope scope(isolate) ;
+
   WrappedArray *self = ObjectWrap::Unwrap<WrappedArray>(args.Holder());
 // Work is used to pass info into our execution threda
   Work *work = new Work();
   work->request.data = work;   // 1st is to set the work so the thread can see our Work struct
   work->err = NULL ;
+  work->isolate = isolate ;
 
+  work->other = NULL ;
   if( args[0]->IsNumber() ) {
     work->otherNumber = args[0]->NumberValue() ;
-    work->other = NULL ;
-  } else {    
-    WrappedArray *other = ( callbackIndex == 0 ) ? NULL : ObjectWrap::Unwrap<WrappedArray>(args[0]->ToObject() );
-    work->other = other ;
+  } else if( args[0]->IsObject() ) {   // is first arg. an array ?
+    Local<Object> possibleOther = args[0]->ToObject() ;
+    Local<String> className = possibleOther->GetConstructorName() ;
+    char *c = new char[className->Utf8Length() + 10 ] ;
+    className->WriteUtf8( c ) ;
+    if( !::strcmp( "Array", c ) ) {
+	    WrappedArray *other = ObjectWrap::Unwrap<WrappedArray>( possibleOther ) ;
+	    work->other = other ;
+    }
+    delete c ;
   }
 
   work->self = self ;
   work->result = ObjectWrap::Unwrap<WrappedArray>( instance )  ;
-  
 // It seems to be best that we create the result in the caller's context
 // So we do it here
   work->resultLocal.Reset( isolate, instance ) ;
+  work->selfObj.Reset( isolate, instance ) ;
+
+  if( !xtraObj.IsEmpty() ) {
+    work->xtraObj.Reset( isolate, xtraObj ) ;
+  }
+  work->xtraInt = xtraInt ;
 
 // If we have a second arg - it should be a callback
 // So setup the Work struct in Promise or callback mode
@@ -2729,7 +2988,7 @@ void WrappedArray::PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args,
       work->resolver.Reset(isolate, resolver ) ;
       args.GetReturnValue().Set( resolver->GetPromise()  ) ;
     } else if( args[callbackIndex]->IsFunction() ) {
-      Local<Function> callback = Local<Function>::Cast(args[1]);
+      Local<Function> callback = Local<Function>::Cast(args[callbackIndex]);
       work->callback.Reset(isolate, callback ) ;
       args.GetReturnValue().Set( Undefined(isolate) ) ;
     }
@@ -2756,12 +3015,11 @@ void WrappedArray::PrepareWork( const v8::FunctionCallbackInfo<v8::Value>& args,
 	This handles the error case too.
 */
 void WrappedArray::WorkAsyncComplete(uv_work_t *req,int status)
-{
-    Isolate * isolate = Isolate::GetCurrent();
-    HandleScope scope(isolate) ;
-
+{    
     // read work from the uv thread handle
     Work *work = static_cast<Work *>(req->data);
+    Isolate *isolate = work->isolate  ;
+    HandleScope scope(isolate) ;
 
     if( work->err != NULL ) {
       if( !work->resolver.IsEmpty() ) {
@@ -2769,7 +3027,7 @@ void WrappedArray::WorkAsyncComplete(uv_work_t *req,int status)
         resolver->Reject( String::NewFromUtf8(isolate, work->err) ) ;
         work->resolver.Reset();   // free the persistent storage 
       } else if( !work->callback.IsEmpty() ) {
-        Handle<Value> argv[] = { String::NewFromUtf8(isolate, work->err), Null(isolate) };
+        Handle<Value> argv[] = { String::NewFromUtf8(isolate, work->err), Null(work->isolate) };
         Local<Function>::New(isolate, work->callback)-> Call(isolate->GetCurrentContext()->Global(), 2, argv);
         work->callback.Reset();   // free the persistent storage 
       } else {
@@ -2792,6 +3050,10 @@ void WrappedArray::WorkAsyncComplete(uv_work_t *req,int status)
         work->resolver.Reset();  // free the persistent storage
       }
     }
+
+    work->xtraObj.Reset() ;
+    work->selfObj.Reset() ;
+
     delete work;	// finished
 }
 
@@ -2846,8 +3108,8 @@ void WrappedArray::SetCoeff(Local<String> property, Local<Value> value, const Pr
   if ( str == "maxPrint") {
     obj->maxPrint_ = value->NumberValue();
   } else if (str == "name" ) {
-    char *c = new char[value->ToString()->Length()] ;
-    value->ToString()->WriteOneByte( (uint8_t*)c, 0, 32 ) ;
+    char *c = new char[value->ToString()->Utf8Length()] ;
+    value->ToString()->WriteUtf8( c, 32 ) ;
     delete obj->name_ ;
     obj->name_ = c;
   }

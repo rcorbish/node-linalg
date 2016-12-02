@@ -1,13 +1,14 @@
 {
   "name": "lalg",
   "description": "Linear algebra library - backed by C++.",
-  "version": "0.0.19",
+  "version": "0.0.21",
   "main": "lalg.js",
   "keywords": [
     "linear algebra",
     "svd",
     "pca",
     "openblas",
+    "solver", "lbfgs", "bfgs",
     "experimental"
   ],
   "author": "Richard Corbishley <rcorbish@hotmail.com> (rcorbish.ydns.eu)",
@@ -24,7 +25,7 @@
     "url": "git://github.com/rcorbish/node-linalg.git"
   },
   "engines": {
-    "node": ">= 7.2.0"
+    "node": ">= 6.5.0"
   },
   "scripts": {
     "test": "node test.js"
