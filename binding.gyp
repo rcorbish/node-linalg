@@ -10,7 +10,6 @@
             "-lopenblas", "-lpthread", "-lgfortran", "-llapacke"
         ],
       'include_dirs': [ 
-		'../../eigen' , 
 		'eigen' , 
 		'CppNumericalSolvers/include' 
       ],

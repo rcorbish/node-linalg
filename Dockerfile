@@ -16,7 +16,7 @@ RUN apt-get update && \
         apt-get -y install liblapacke-dev && \
         apt-get -y install make && \
         apt-get -y install g++ && \
-	npm install lalg
+		npm install lalg
 
 VOLUME ["/github"]
 
