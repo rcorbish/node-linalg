@@ -4,13 +4,13 @@
       "target_name": "lalg",
       "sources": [ "src/Array.cpp" ], 
       "defines" : [
-	"EIGEN_MPL2_ONLY"
-	],
+	    "EIGEN_MPL2_ONLY"
+	  ],
       "libraries": [
             "-lopenblas", "-lpthread", "-lgfortran", "-llapacke"
         ],
       'include_dirs': [ 
-		'eigen' , 
+		'./eigen' , 
 		'CppNumericalSolvers/include' 
       ],
       "cflags": ["-Wall", "-std=c++11", "-Wsign-compare" ],

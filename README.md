@@ -29,8 +29,8 @@ Of note:
 
 This library builds on the following. Great work chaps - so good it's worth stealing!
 
-[CppNumericalSolvers]: https://github.com/PatWie/CppNumericalSolvers
-[eigen3]: http://eigen.tuxfamily.org/
+* [CppNumericalSolvers](https://github.com/PatWie/CppNumericalSolvers)
+* [eigen3](http://eigen.tuxfamily.org/)
 
 
 # Installation

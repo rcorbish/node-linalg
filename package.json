@@ -8,8 +8,7 @@
     "svd",
     "pca",
     "openblas",
-    "solver", "lbfgs", "bfgs",
-    "experimental"
+    "solver", "lbfgs", "bfgs"
   ],
   "author": "Richard Corbishley <rcorbish@hotmail.com> (rcorbish.ydns.eu)",
   "contributors": [ ],
