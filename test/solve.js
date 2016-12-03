@@ -70,7 +70,7 @@ var solvers = [ "BFGS", "CGD", "NEWTON","NELDERMEAD", "LBFGS","CMAES" ] ;
 console.log( "PROPER ANSWER")
 console.log( " 0    @ 1  , 1" ) 
 console.log( "-0.5  @ 0.5, 0.5" ) 
-console.log( "-0.25 @ 0  , 0.707" ) ;
+console.log( "-0.25 @ 0  , ±0.707" ) ;
 
 A = new lalg.Array( 2, 1, [ 0.5, -0.5] ) ;
 
