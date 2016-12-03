@@ -73,7 +73,7 @@ the javascript calls start with lowercase letters.
 
 # Examples
 
-## create a matrix
+## Create a matrix
 
 Create an uninitialized array (not too useful really)
 ```
@@ -100,7 +100,7 @@ Create the identity matrix ( identity is square, only need 1 arg )
 	var Identity5 = lalg.eye( 5 ) ;
 ```
 
-## scalar functions
+## Scalar functions
 
 Add a value to each element in the matrix
 Multiply each element in the matrix by a single value. NB add() also
@@ -121,8 +121,46 @@ compatible shapes)
 	var T = A.mul( 10 ) ;   // now all elements in T are equal to 10
 ```
 
+## Linear functions 
 
-## linear regression 
+Multiply two matrices. This is the same call as the scalar version, but passing
+in a matrix or vector fires off the linear matrix multiplies
+```
+	var lalg = require('lalg');
+	var A = lalg.rand( 5 ) ;
+	var B = lalg.rand( 5 ) ;
+	var T = A.mul( B ) ;   // T = A x B  - another 5x5 matrix
+	console..log( T ) ;
+```
+
+## Other functions 
+
+Other functions that may be useful:
+mean - calculate the mean of rows or columns
+sum - calculate the sum of elements in rows or columns
+norm - calculates the Euclidean norm of rows or columns
+inv - the matrix inverse
+pinv - the pseudo inverse, can calculate an inverse for non-square and singular matrices
+log - calculate the log of each element
+abs - absolute value of each element
+sqrt - the sqrt of each element
+svd - singular value decomp of a matrix - return U,S, Vt in once object
+pca - principal components analysis, reduces the dimension of a vector
+transpose - transpose a matyix 
+
+## Element manipulation
+
+Some functions of a matrix are provided to extract/add/move rows and columns
+
+rotate - rotate the columns in a matrix
+addColumn - adds a row vector to a matrix
+addRow - adds a column vector to a matrix
+removeRow - rfemoves a row vector from a matrix
+removeCoOlumn - removes a column from a matrix
+getRows - copies rows from a matrix to a new matrix
+getColumns - copies columns from a matrix to a new matrix
+
+## Linear regression 
 OK we'll try a more complex example. It showcases the non-blocking 
 features of the library. 
 
@@ -137,4 +175,11 @@ Linear regression as a first step.
 Plot the results (in a spreadsheet for example) to see if we're accurate. Don't worry we'll do better 
 with logistic regression.
 
+## Equation solving 
 
+This implements a solver to find the minimum value of a function. Given a matrix of features
+and a means to calculate a partial differential (gradients) finds the global minimum.
+
+Click [here](https://github.com/rcorbish/node-linalg/blob/master/test/solve.js) for a sample. 
+
+See the [docs](https://rcorbish.ydns.eu/lalg/classWrappedArray.html#a528d9aae6c7cc261d8aa4b457cb2250b) for the requirements to define the gradient calculations. 
