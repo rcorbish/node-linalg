@@ -10,7 +10,7 @@
             "-lopenblas", "-lpthread", "-lgfortran", "-llapacke"
         ],
       'include_dirs': [ 
-		'CppNumericalSolvers/eigen' , 
+		'eigen' , 
 		'CppNumericalSolvers/include' 
       ],
       "cflags": ["-Wall", "-std=c++11", "-Wsign-compare" ],

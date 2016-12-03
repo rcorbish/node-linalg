@@ -25,6 +25,13 @@ Of note:
 * NVIDIA CUDA support - beta testing in progress (20kx20k mul() in 500ms!!!)
 * caffe integration - let's get the caffe chaps' good work into nodejs :)
 
+# Contribute
+
+This library builds on the following. Great work chaps - so good it's worth stealing!
+
+[CppNumericalSolvers]: https://github.com/PatWie/CppNumericalSolvers
+[eigen3]: http://eigen.tuxfamily.org/
+
 
 # Installation
 
