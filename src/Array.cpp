@@ -86,7 +86,7 @@ class WrappedArray : public node::ObjectWrap
       NODE_SET_PROTOTYPE_METHOD(tpl, "rotateColumns", RotateColumns);
       NODE_SET_PROTOTYPE_METHOD(tpl, "reshape", Reshape);
       NODE_SET_PROTOTYPE_METHOD(tpl, "solve", Solve);
-      NODE_SET_PROTOTYPE_METHOD(tpl, "solvep", Solvep);
+      //NODE_SET_PROTOTYPE_METHOD(tpl, "solvep", Solvep);
       NODE_SET_PROTOTYPE_METHOD(tpl, "set", Set);
       NODE_SET_PROTOTYPE_METHOD(tpl, "get", Get);
 
@@ -2591,7 +2591,9 @@ void WrappedArray::Solve( const v8::FunctionCallbackInfo<v8::Value>& args )
 }
 
 
-/** 
+/*
+    Do not use (yet)
+
 	Solves a function for its minimum
 	
 	Solves the function starting at the given Array based starting position. After
@@ -3072,21 +3074,21 @@ void WrappedArray::GetCoeff(Local<String> property, const PropertyCallbackInfo<V
 {
   Isolate* isolate = info.GetIsolate();
   //Local<Context> context = isolate->GetCurrentContext() ;
-  WrappedArray* obj = ObjectWrap::Unwrap<WrappedArray>(info.This());
+  WrappedArray* self = ObjectWrap::Unwrap<WrappedArray>(info.This());
 
   v8::String::Utf8Value s(property);
   std::string str(*s);
 
   if ( str == "m") {
-    info.GetReturnValue().Set(Number::New(isolate, obj->m_));
+    info.GetReturnValue().Set(Number::New(isolate, self->m_));
   } else if (str == "n") {
-    info.GetReturnValue().Set(Number::New(isolate, obj->n_));
+    info.GetReturnValue().Set(Number::New(isolate, self->n_));
   } else if (str == "length") {
-    info.GetReturnValue().Set(Number::New(isolate, obj->n_*obj->m_ ));
+    info.GetReturnValue().Set(Number::New(isolate, self->n_*self->m_ ));
   } else if (str == "maxPrint") {
-    info.GetReturnValue().Set(Number::New(isolate, obj->maxPrint_ ));
-  } else if (str == "name" && obj->name_ != NULL ) {
-    info.GetReturnValue().Set( String::NewFromUtf8(isolate, obj->name_) ) ;
+    info.GetReturnValue().Set(Number::New(isolate, self->maxPrint_ ));
+  } else if (str == "name" && self->name_ != NULL ) {
+    info.GetReturnValue().Set( String::NewFromUtf8(isolate, self->name_) ) ;
   }
 }
 
