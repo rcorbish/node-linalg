@@ -1,23 +1,25 @@
 {
   "name": "lalg",
   "description": "Linear algebra library - backed by C++.",
-  "version": "0.0.22",
+  "version": "0.0.24",
   "main": "lalg.js",
   "keywords": [
     "linear algebra",
     "svd",
     "pca",
     "openblas",
-    "solver", "lbfgs", "bfgs"
+    "solver",
+    "lbfgs",
+    "bfgs"
   ],
   "author": "Richard Corbishley <rcorbish@hotmail.com> (rcorbish.ydns.eu)",
-  "contributors": [ ],
+  "contributors": [],
   "dependencies": {
+    "fast-csv": ">=2.3.0"
   },
-  "devDependencies": {
-  },
+  "devDependencies": {},
   "optionalDependencies": {
-	"fast-csv" : ">=2.3.0"
+    "fast-csv": ">=2.3.0"
   },
   "repository": {
     "type": "git",
@@ -27,16 +29,16 @@
     "node": ">= 6.5.0"
   },
   "scripts": {
-    "test": "node test.js"
+    "test": "node test.js",
+    "install": "node-gyp rebuild"
   },
   "bugs": {
     "url": "https://github.com/rcorbish/node-linalg/issues"
   },
   "homepage": "https://github.com/rcorbish/node-linalg#readme",
   "directories": {
-    "test": "test",
-    "data": "data"
+    "test": "test"
   },
-  "license": "Unlicense"
+  "license": "Unlicense",
+  "gypfile": true
 }
-
