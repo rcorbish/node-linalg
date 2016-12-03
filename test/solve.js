@@ -43,7 +43,28 @@ function userFunction2() {
 } ;
 
 
-var f = new userFunction2() ;
+function userFunction3() {
+
+	// f(x,y)
+	this.value = function( x ) {
+		var x2 = x.get(0)*x.get(0) ;
+		var y2 = x.get(1)*x.get(1) ;
+
+		return   x2 - y2 + x2*x2 + y2*y2 ;
+	} ;
+
+	// df(x,y)/dx , df(x,y)/dy
+	this.gradient = function( x ) {
+		var rc = new lalg.Array(x.length, 1 ) ;
+		
+		rc.set( 4*x.get(0)*x.get(0)*x.get(0) + 2*x.get(0)	,0 ) ;
+		rc.set( 4*x.get(1)*x.get(1)*x.get(1) + 2*x.get(1)	,1 ) ; 
+		return rc ;
+	}
+} ;
+
+
+var f = new userFunction3() ;
 
 var solvers = [ "BFGS", "CGD", "NEWTON","NELDERMEAD", "LBFGS","CMAES" ] ;
 for( var i=0 ; i<solvers.length ; i++ ) {

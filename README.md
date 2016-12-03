@@ -136,29 +136,31 @@ in a matrix or vector fires off the linear matrix multiplies
 ## Other functions 
 
 Other functions that may be useful:
-mean - calculate the mean of rows or columns
-sum - calculate the sum of elements in rows or columns
-norm - calculates the Euclidean norm of rows or columns
-inv - the matrix inverse
-pinv - the pseudo inverse, can calculate an inverse for non-square and singular matrices
-log - calculate the log of each element
-abs - absolute value of each element
-sqrt - the sqrt of each element
-svd - singular value decomp of a matrix - return U,S, Vt in once object
-pca - principal components analysis, reduces the dimension of a vector
-transpose - transpose a matyix 
+
+* mean - calculate the mean of rows or columns
+* sum - calculate the sum of elements in rows or columns
+* norm - calculates the Euclidean norm of rows or columns
+* inv - the matrix inverse
+* pinv - the pseudo inverse, can calculate an inverse for non-square and singular matrices
+* log - calculate the log of each element
+* abs - absolute value of each element
+* sqrt - the sqrt of each element
+* svd - singular value decomp of a matrix - return U,S, Vt in once object
+* pca - principal components analysis, reduces the dimension of a vector
+* transpose - transpose a matyix
+* dup - copy a matrix 
 
 ## Element manipulation
 
 Some functions of a matrix are provided to extract/add/move rows and columns
 
-rotate - rotate the columns in a matrix
-addColumn - adds a row vector to a matrix
-addRow - adds a column vector to a matrix
-removeRow - rfemoves a row vector from a matrix
-removeCoOlumn - removes a column from a matrix
-getRows - copies rows from a matrix to a new matrix
-getColumns - copies columns from a matrix to a new matrix
+* rotate - rotate the columns in a matrix
+* addColumn - adds a row vector to a matrix
+* addRow - adds a column vector to a matrix
+* removeRow - rfemoves a row vector from a matrix
+* removeCoOlumn - removes a column from a matrix
+* getRows - copies rows from a matrix to a new matrix
+* getColumns - copies columns from a matrix to a new matrix
 
 ## Linear regression 
 OK we'll try a more complex example. It showcases the non-blocking 
