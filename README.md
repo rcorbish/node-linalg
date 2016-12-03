@@ -184,4 +184,12 @@ and a means to calculate a partial differential (gradients) finds the global min
 
 Click [here](https://github.com/rcorbish/node-linalg/blob/master/test/solve.js) for a sample. 
 
-See the [docs](https://rcorbish.ydns.eu/lalg/classWrappedArray.html#a528d9aae6c7cc261d8aa4b457cb2250b) for the requirements to define the gradient calculations. 
+See the [docs](https://rcorbish.ydns.eu/lalg/classWrappedArray.html#a528d9aae6c7cc261d8aa4b457cb2250b) for the requirements to define the gradient calculations.
+
+
+## Weirdness
+
+[First example of machine learning?](https://en.wikipedia.org/wiki/Hastings_Rarities)
+
+
+ 
