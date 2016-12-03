@@ -1,0 +1,8 @@
+eigen
+CppNumericalSolvers
+.project
+build.sh
+build
+html
+node_modules
+

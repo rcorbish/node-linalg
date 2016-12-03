@@ -3,7 +3,7 @@ var lalg = require('lalg');
 
 A = new lalg.Array( 2, 1, [-1, 2.5] ) ;
 
-function userFunction() {
+function userFunction1() {
 
 	this.value = function( x ) {
 		   var t1 = (1 - x.get(0));
@@ -67,13 +67,27 @@ function userFunction3() {
 var f = new userFunction3() ;
 
 var solvers = [ "BFGS", "CGD", "NEWTON","NELDERMEAD", "LBFGS","CMAES" ] ;
+console.log( "PROPER ANSWER")
+console.log( " 0    @ 1  , 1" ) 
+console.log( "-0.5  @ 0.5, 0.5" ) 
+console.log( "-0.25 @ 0  , 0.707" ) ;
+
+A = new lalg.Array( 2, 1, [ 0.5, -0.5] ) ;
+
 for( var i=0 ; i<solvers.length ; i++ ) {
 	console.log( solvers[i] ) ;
-	for( var j=0 ; j<4 ; j++ ) {
-		A = new lalg.Array( 2, 1, [ 0.1, 0.1] ) ;
-		A.solve( f, solvers[i] ) ;
-		console.log( "Actual Min:", f.value(A), "@", Array.from(A) ) ;
-	}
+	var f = new userFunction1() ;
+	A = new lalg.rand( 2, 1 ) ;
+	A.solve( f, solvers[i] ) ;
+	console.log( "Actual Min:", f.value(A), "@", Array.from(A) ) ;
+	var f = new userFunction2() ;
+	A = new lalg.rand( 2, 1 ) ;
+	A.solve( f, solvers[i] ) ;
+	console.log( "Actual Min:", f.value(A), "@", Array.from(A) ) ;
+	var f = new userFunction3() ;
+	A = new lalg.rand( 2, 1 ) ;
+	A.solve( f, solvers[i] ) ;
+	console.log( "Actual Min:", f.value(A), "@", Array.from(A) ) ;
 	console.log() ;
 }
 
