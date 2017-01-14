@@ -171,7 +171,7 @@ class WrappedArray : public node::ObjectWrap
           self = Create(m, n) ;
           if( !args[2]->IsUndefined() && args[2]->IsNumber() ) {
 	    float v = args[2]->NumberValue() ;
-	    for( int i=0 ; i<m*n ; i++ ) {
+	    for( int i=0 ; i<m*n ; ++i) {
 	      self->data_[i] = v ;
 	    }
 	  }
